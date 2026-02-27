@@ -30,11 +30,13 @@ Six-phase journey from core conversation foundation to production-ready deployme
 5. Conversation state persists across bot restarts (Redis-backed sessions)
 6. Inactive conversations expire automatically after 24 hours
 
-**Plans**: TBD
+**Plans**: 4 plans in 4 waves
 
 Plans:
-- [ ] 01-01: TBD during planning
-- [ ] 01-02: TBD during planning
+- [ ] 01-01-PLAN.md — Foundation (database + bot setup + Redis)
+- [ ] 01-02-PLAN.md — Session management and command handlers
+- [ ] 01-03-PLAN.md — Multi-turn conversations with slot filling
+- [ ] 01-04-PLAN.md — Webhook security and verification checkpoint
 
 ### Phase 2: Document Ingestion & RAG Pipeline
 **Goal**: Bot can retrieve relevant information from uploaded business documents to answer user questions
@@ -141,7 +143,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Core Conversation Engine | 0/TBD | Not started | - |
+| 1. Core Conversation Engine | 0/4 | Planning complete | - |
 | 2. Document Ingestion & RAG | 0/TBD | Not started | - |
 | 3. LLM Integration | 0/TBD | Not started | - |
 | 4. Metadata & Admin | 0/TBD | Not started | - |
