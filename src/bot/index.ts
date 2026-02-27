@@ -1,34 +1,64 @@
 import { Bot } from 'grammy';
 import { env } from '../config/env.js';
+import type { MyContext } from '../types/context.js';
+import { sessionMiddleware } from './middleware/session.js';
+import { loggerMiddleware } from './middleware/logger.js';
+import { errorHandler } from './middleware/error-handler.js';
+import { registerCommands } from './commands.js';
+import { logger } from '../utils/logger.js';
 
-// Create bot instance with Telegram token
-export const bot = new Bot(env.BOT_TOKEN);
+// Create bot instance with custom context type
+export const bot = new Bot<MyContext>(env.BOT_TOKEN);
 
-// Basic command handlers
-bot.command('start', async (ctx) => {
-  await ctx.reply('Bot is running!');
+// Apply middleware in order (order matters!)
+// 1. Logger - log all updates first
+bot.use(loggerMiddleware);
+
+// 2. Session - attach session to context
+bot.use(sessionMiddleware);
+
+// 3. Commands - register command handlers
+registerCommands(bot);
+
+// 4. Test handler - verify session persistence across restarts
+bot.on('message:text', async (ctx) => {
+  // Skip if it's a command
+  if (ctx.message.text.startsWith('/')) {
+    return;
+  }
+
+  // Update last activity timestamp
+  ctx.session.lastActivityAt = new Date();
+
+  // Increment message counter for testing persistence
+  const count = (ctx.session.messageCount || 0) + 1;
+  ctx.session.messageCount = count;
+
+  await ctx.reply(
+    `Message ${count} received (session persists across restarts).\n\n` +
+    `Current state: ${ctx.session.conversationState}\n` +
+    `Use /start to begin a conversation.`
+  );
 });
 
-// Global error handler
-bot.catch((err) => {
-  console.error('Bot error:', err);
-});
+// 5. Global error handler - catch all errors (prevents crashes)
+bot.catch(errorHandler);
 
 /**
  * Start the bot with long polling for development
  */
 export async function startBot(): Promise<void> {
   try {
-    console.log('Starting bot with long polling...');
+    logger.info('Starting bot with long polling...');
 
     // Start bot with long polling
     await bot.start({
       onStart: (botInfo) => {
-        console.log(`Bot @${botInfo.username} started successfully`);
+        logger.info(`Bot @${botInfo.username} started successfully`);
       },
     });
   } catch (error) {
-    console.error('Failed to start bot:', error);
+    logger.error('Failed to start bot', { error });
     throw error;
   }
 }
@@ -37,18 +67,18 @@ export async function startBot(): Promise<void> {
  * Stop the bot gracefully
  */
 export async function stopBot(): Promise<void> {
-  console.log('Stopping bot...');
+  logger.info('Stopping bot...');
   await bot.stop();
-  console.log('Bot stopped');
+  logger.info('Bot stopped');
 }
 
 // Graceful shutdown handlers
 process.once('SIGINT', () => {
-  console.log('SIGINT received, stopping bot...');
+  logger.info('SIGINT received, stopping bot...');
   stopBot().then(() => process.exit(0));
 });
 
 process.once('SIGTERM', () => {
-  console.log('SIGTERM received, stopping bot...');
+  logger.info('SIGTERM received, stopping bot...');
   stopBot().then(() => process.exit(0));
 });
