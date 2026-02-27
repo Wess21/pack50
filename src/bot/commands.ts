@@ -4,7 +4,7 @@ import { logger } from '../utils/logger.js';
 
 /**
  * /start command handler
- * Resets session state and welcomes user
+ * Starts lead collection conversation flow
  */
 async function startCommand(ctx: MyContext): Promise<void> {
   logger.info('Start command received', {
@@ -19,10 +19,8 @@ async function startCommand(ctx: MyContext): Promise<void> {
   ctx.session.messageHistory = [];
   ctx.session.lastActivityAt = new Date();
 
-  await ctx.reply(
-    "Welcome to Pack50! I'm here to help gather your requirements. " +
-    "Type /help to see what I can do, or just start chatting with me."
-  );
+  // Enter lead collection conversation flow
+  await ctx.conversation.enter('leadCollectionFlow');
 }
 
 /**

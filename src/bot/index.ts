@@ -1,10 +1,12 @@
 import { Bot } from 'grammy';
+import { conversations, createConversation } from '@grammyjs/conversations';
 import { env } from '../config/env.js';
 import type { MyContext } from '../types/context.js';
 import { sessionMiddleware } from './middleware/session.js';
 import { loggerMiddleware } from './middleware/logger.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { registerCommands } from './commands.js';
+import { leadCollectionFlow } from './conversations/lead-collection.js';
 import { logger } from '../utils/logger.js';
 
 // Create bot instance with custom context type
@@ -14,16 +16,28 @@ export const bot = new Bot<MyContext>(env.BOT_TOKEN);
 // 1. Logger - log all updates first
 bot.use(loggerMiddleware);
 
-// 2. Session - attach session to context
+// 2. Session - attach session to context (MUST be before conversations)
 bot.use(sessionMiddleware);
 
-// 3. Commands - register command handlers
+// 3. Conversations plugin - enable multi-turn dialogues
+bot.use(conversations());
+
+// 4. Register lead collection conversation
+bot.use(createConversation(leadCollectionFlow));
+
+// 5. Commands - register command handlers
 registerCommands(bot);
 
-// 4. Test handler - verify session persistence across restarts
+// 6. Test handler - verify session persistence across restarts
+// Only responds when NOT in active conversation
 bot.on('message:text', async (ctx) => {
   // Skip if it's a command
   if (ctx.message.text.startsWith('/')) {
+    return;
+  }
+
+  // Skip if in active conversation
+  if (ctx.session.conversationState !== 'idle') {
     return;
   }
 
@@ -41,7 +55,7 @@ bot.on('message:text', async (ctx) => {
   );
 });
 
-// 5. Global error handler - catch all errors (prevents crashes)
+// 7. Global error handler - catch all errors (prevents crashes)
 bot.catch(errorHandler);
 
 /**
