@@ -1,13 +1,15 @@
+import { InlineKeyboard } from 'grammy';
 import type { Conversation } from '@grammyjs/conversations';
 import type { MyContext } from '../../types/context.js';
 import { extractDataFromMessage } from '../../api/services/data-extraction.js';
 import { manageConversationContext, isLeadComplete } from './helpers.js';
-import { confirmKeyboard } from '../keyboards.js';
 import {
   findOrCreateUser,
   createConversation,
   addMessage,
   updateConversationLeadData,
+  createLead,
+  findLeadByEmail,
 } from '../../api/repositories/index.js';
 import { logger } from '../../utils/logger.js';
 
@@ -134,8 +136,64 @@ export async function leadCollectionFlow(
 
   const leadData = await conversation.external(async () => ctx.session.leadData);
 
+  // Check for duplicate lead by email
+  const existingLead = await conversation.external(async () => {
+    return await findLeadByEmail(leadData.email!);
+  });
+
+  if (existingLead) {
+    logger.info('Duplicate lead detected', {
+      email: leadData.email,
+      existingLeadId: existingLead.id,
+    });
+
+    // Show duplicate warning with options
+    const duplicateKeyboard = new InlineKeyboard()
+      .text('✓ Обновить данные', 'update_lead')
+      .text('✗ Отмена', 'cancel_lead');
+
+    await ctx.reply(
+      `У нас уже есть заявка с email ${leadData.email} от ${existingLead.created_at.toLocaleDateString()}.\n\n` +
+      `Хотите обновить информацию?`,
+      { reply_markup: duplicateKeyboard }
+    );
+
+    const duplicateCallback = await conversation.waitFor('callback_query:data');
+    await duplicateCallback.answerCallbackQuery();
+
+    if (duplicateCallback.callbackQuery.data === 'cancel_lead') {
+      await duplicateCallback.editMessageText('Заявка не создана. Используйте /start чтобы начать заново.');
+
+      // Reset session
+      await conversation.external(async () => {
+        ctx.session.conversationState = 'idle';
+        ctx.session.leadData = {};
+        ctx.session.messageHistory = [];
+        ctx.session.lastActivityAt = new Date();
+      });
+
+      logger.info('Lead creation cancelled due to duplicate', {
+        userId: ctx.from?.id,
+        email: leadData.email,
+      });
+
+      return; // Exit conversation
+    }
+
+    // User chose to update - continue to confirmation
+  }
+
   // Show confirmation message with inline keyboard
-  const confirmationMessage = `Пожалуйста, подтвердите информацию:\n\nИмя: ${leadData.name}\nEmail: ${leadData.email}\nТелефон: ${leadData.phone}`;
+  const confirmKeyboard = new InlineKeyboard()
+    .text('✓ Подтвердить', 'confirm_lead')
+    .text('✗ Начать заново', 'edit_lead');
+
+  const confirmationMessage =
+    `Пожалуйста, проверьте информацию:\n\n` +
+    `Имя: ${leadData.name}\n` +
+    `Email: ${leadData.email}\n` +
+    `Телефон: ${leadData.phone}\n\n` +
+    `Все верно?`;
 
   await ctx.reply(confirmationMessage, {
     reply_markup: confirmKeyboard,
@@ -150,7 +208,7 @@ export async function leadCollectionFlow(
   // Handle confirmation
   if (callbackCtx.callbackQuery.data === 'confirm_lead') {
     // Persist to database (wrapped in external)
-    await conversation.external(async () => {
+    const result = await conversation.external(async () => {
       try {
         // Create or update user
         const user = await findOrCreateUser(
@@ -168,24 +226,44 @@ export async function leadCollectionFlow(
           await addMessage(conv.id, msg.role, msg.content);
         }
 
-        // Save lead data
+        // Save lead data to conversation
         await updateConversationLeadData(conv.id, ctx.session.leadData);
+
+        // Create structured lead record
+        const lead = await createLead(
+          conv.id,
+          ctx.session.leadData.name!,
+          ctx.session.leadData.email!,
+          ctx.session.leadData.phone!,
+          ctx.session.leadData.additional_info
+        );
 
         logger.info('Lead data persisted to database', {
           userId: user.id,
           conversationId: conv.id,
+          leadId: lead.id,
           leadData: ctx.session.leadData,
         });
+
+        return { success: true, leadId: lead.id };
       } catch (error) {
         logger.error('Failed to persist lead data', {
           error: error instanceof Error ? error.message : String(error),
         });
-        throw error;
+        return { success: false, error };
       }
     });
 
-    // Send success message
-    await callbackCtx.reply('Спасибо! Ваша заявка принята. Мы свяжемся с вами в ближайшее время.');
+    if (result.success) {
+      // Edit confirmation message to show success (prevents new message)
+      await callbackCtx.editMessageText(
+        '✓ Спасибо! Ваша заявка принята. Мы свяжемся с вами в ближайшее время.'
+      );
+    } else {
+      await callbackCtx.reply(
+        'Произошла ошибка при сохранении заявки. Попробуйте еще раз позже.'
+      );
+    }
 
     // Reset session to idle
     await conversation.external(async () => {
@@ -200,7 +278,7 @@ export async function leadCollectionFlow(
     });
   } else {
     // User clicked "Edit" - restart conversation
-    await callbackCtx.reply('Хорошо, начнем заново. Используйте /start чтобы начать сначала.');
+    await callbackCtx.editMessageText('Хорошо, начнем заново. Используйте /start чтобы начать сначала.');
 
     // Reset session
     await conversation.external(async () => {
