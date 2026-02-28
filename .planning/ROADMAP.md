@@ -52,11 +52,12 @@ Plans:
 4. Bot cites sources (document name, page number) when answering from documents
 5. Knowledge base contains embedded vectors for 10K+ document chunks
 
-**Plans**: TBD
+**Plans**: 3 plans in 3 waves
 
 Plans:
-- [ ] 02-01: TBD during planning
-- [ ] 02-02: TBD during planning
+- [ ] 02-01-PLAN.md — Vector embedding infrastructure (pgvector + embedding service)
+- [ ] 02-02-PLAN.md — Document processing pipeline (PDF/DOCX/URL loaders + chunking + API)
+- [ ] 02-03-PLAN.md — RAG retrieval integration (vector search + bot integration + citations)
 
 ### Phase 3: LLM Integration & Context Management
 **Goal**: Bot generates intelligent, context-aware responses using AI and sends data to external systems via webhooks
@@ -144,7 +145,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Core Conversation Engine | 0/4 | Planning complete | - |
-| 2. Document Ingestion & RAG | 0/TBD | Not started | - |
+| 2. Document Ingestion & RAG | 0/3 | Planning complete | - |
 | 3. LLM Integration | 0/TBD | Not started | - |
 | 4. Metadata & Admin | 0/TBD | Not started | - |
 | 5. Deployment Automation | 0/TBD | Not started | - |
@@ -192,4 +193,4 @@ Plans:
 ---
 
 **Created:** 2026-02-27
-**Last updated:** 2026-02-27
+**Last updated:** 2026-02-28
