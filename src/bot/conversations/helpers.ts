@@ -53,34 +53,41 @@ export async function manageConversationContext(session: SessionData): Promise<M
       oldMessages: oldMessages.length,
     });
 
-    try {
-      // Format old messages for summarization
-      const formattedMessages = oldMessages
-        .map((msg) => `${msg.role}: ${msg.content}`)
-        .join('\n');
+    // Try LLM summarization if API key is available
+    if (env.ANTHROPIC_API_KEY) {
+      try {
+        const formattedMessages = oldMessages
+          .map((msg) => `${msg.role}: ${msg.content}`)
+          .join('\n');
 
-      const response = await anthropic.messages.create({
-        model: 'claude-sonnet-4-5-20250929',
-        max_tokens: 200,
-        messages: [
-          {
-            role: 'user',
-            content: `Summarize the key points and context from this conversation concisely (2-3 sentences):\n\n${formattedMessages}`,
-          },
-        ],
-      });
+        const response = await anthropic.messages.create({
+          model: 'claude-sonnet-4-5-20250929',
+          max_tokens: 200,
+          messages: [
+            {
+              role: 'user',
+              content: `Summarize the key points and context from this conversation concisely (2-3 sentences):\n\n${formattedMessages}`,
+            },
+          ],
+        });
 
-      const content = response.content[0];
-      if (content.type === 'text') {
-        summary = content.text.trim();
-        logger.debug('Summary generated', { summary });
+        const content = response.content[0];
+        if (content.type === 'text') {
+          summary = content.text.trim();
+          logger.debug('Summary generated via LLM', { summary });
+        }
+      } catch (error) {
+        logger.warn('Failed to generate conversation summary via LLM', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        // Fall through to simple summary
       }
-    } catch (error) {
-      logger.error('Failed to generate conversation summary', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      // If summarization fails, use placeholder
+    }
+
+    // Fallback: simple message count summary (when no API key or LLM failed)
+    if (!summary) {
       summary = `[Previous conversation with ${oldMessages.length} messages]`;
+      logger.debug('Using simple summary (no LLM)', { summary });
     }
   }
 

@@ -55,40 +55,60 @@ function extractPhone(message: string): string | undefined {
 }
 
 /**
- * Extract name from message using Claude API
- * Handles complex patterns (Jr., titles, Cyrillic names) that regex can't handle
+ * Extract name from message using LLM or regex fallback
+ * Tries LLM first if API key available, falls back to regex patterns
  */
 async function extractName(message: string): Promise<string | undefined> {
-  try {
-    logger.debug('Extracting name via LLM', { message });
+  // Try LLM if API key is available
+  if (env.ANTHROPIC_API_KEY) {
+    try {
+      logger.debug('Extracting name via LLM', { message });
 
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-5-20250929',
-      max_tokens: 50,
-      messages: [
-        {
-          role: 'user',
-          content: `Extract the person's name from this message. Return only the name, or 'NONE' if no name is present.\n\nMessage: "${message}"`,
-        },
-      ],
-    });
+      const response = await anthropic.messages.create({
+        model: 'claude-sonnet-4-5-20250929',
+        max_tokens: 50,
+        messages: [
+          {
+            role: 'user',
+            content: `Extract the person's name from this message. Return only the name, or 'NONE' if no name is present.\n\nMessage: "${message}"`,
+          },
+        ],
+      });
 
-    const content = response.content[0];
-    if (content.type === 'text') {
-      const extractedText = content.text.trim();
-      if (extractedText && extractedText !== 'NONE' && extractedText.length > 0) {
-        logger.debug('Name extracted', { name: extractedText });
-        return extractedText;
+      const content = response.content[0];
+      if (content.type === 'text') {
+        const extractedText = content.text.trim();
+        if (extractedText && extractedText !== 'NONE' && extractedText.length > 0) {
+          logger.debug('Name extracted via LLM', { name: extractedText });
+          return extractedText;
+        }
       }
+    } catch (error) {
+      logger.warn('Failed to extract name via LLM, falling back to regex', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      // Fall through to regex extraction
     }
-
-    return undefined;
-  } catch (error) {
-    logger.error('Failed to extract name via LLM', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return undefined;
   }
+
+  // Fallback: regex-based name extraction
+  const patterns = [
+    // "Меня зовут Иван", "Я Петр", "Имя: Сергей"
+    /(?:меня зовут|я|имя:?)\s+([А-ЯЁA-Z][а-яёa-z]+(?:\s+[А-ЯЁA-Z][а-яёa-z]+)*)/i,
+    // Standalone full name: "Иван Петров"
+    /^([А-ЯЁA-Z][а-яёa-z]+\s+[А-ЯЁA-Z][а-яёa-z]+)$/,
+  ];
+
+  for (const pattern of patterns) {
+    const match = message.match(pattern);
+    if (match && match[1]) {
+      const name = match[1].trim();
+      logger.debug('Name extracted via regex', { name });
+      return name;
+    }
+  }
+
+  return undefined;
 }
 
 /**
