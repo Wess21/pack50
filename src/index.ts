@@ -4,6 +4,9 @@ import { bot, startBot, stopBot } from './bot/index.js';
 import { startWebhook } from './bot/webhook.js';
 import { logger } from './utils/logger.js';
 import { EmbeddingService } from './services/embedding.js';
+import express from 'express';
+import cors from 'cors';
+import documentsRouter from './api/routes/documents.js';
 
 /**
  * Main application entry point
@@ -28,12 +31,28 @@ async function main() {
 
     // Start bot in appropriate mode
     if (env.WEBHOOK_URL && env.WEBHOOK_SECRET) {
-      // Production: use webhook
+      // Production: use webhook (integrates with webhook Express app)
       logger.info('Starting bot in webhook mode...');
-      await startWebhook(bot);
+      const webhookApp = await startWebhook(bot);
+
+      // Add document upload routes to webhook app
+      webhookApp.use(cors());
+      webhookApp.use('/api/documents', documentsRouter);
+
       logger.info('=== Pack50 Bot Ready (Webhook Mode) ===');
     } else {
-      // Development: use long polling
+      // Development: use long polling + separate API server
+      // IMPORTANT: Start API server BEFORE bot.start() because bot.start() is blocking
+      const app = express();
+      app.use(cors());
+      app.use(express.json());
+      app.use('/api/documents', documentsRouter);
+
+      const API_PORT = env.PORT || 3000;
+      app.listen(API_PORT, () => {
+        logger.info(`API server listening on port ${API_PORT}`);
+      });
+
       logger.info('Starting bot in long polling mode (development)...');
       await startBot();
       logger.info('=== Pack50 Bot Ready (Long Polling Mode) ===');
