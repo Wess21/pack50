@@ -1,16 +1,14 @@
 import { MyContext } from '../../types/context.js';
 import { searchDocuments, formatCitations, extractContext } from '../../services/retrieval.js';
 import { logger } from '../../utils/logger.js';
-import { LLMService } from '../../services/llm.js';
+import { createLLMProvider } from '../../services/llm/provider-factory.js';
 import { ContextManager } from '../../services/context-manager.js';
 import { WebhookService } from '../../services/webhook.js';
 import { buildSystemPrompt } from '../../prompts/system-prompts.js';
 import { buildPrompt } from '../../prompts/prompt-builder.js';
 import { env } from '../../config/env.js';
-import type Anthropic from '@anthropic-ai/sdk';
 
 // Initialize services
-const llmService = new LLMService();
 const contextManager = new ContextManager();
 const webhookService = new WebhookService(env.WEBHOOK_URL || '');
 
@@ -61,8 +59,8 @@ export async function handleMessage(ctx: MyContext) {
     // Load conversation history from session
     const sessionHistory = ctx.session.messageHistory || [];
 
-    // Convert session history to Anthropic message format
-    const conversationHistory: Anthropic.MessageParam[] = sessionHistory.map(msg => ({
+    // Convert session history to generic message format
+    const conversationHistory = sessionHistory.map(msg => ({
       role: msg.role,
       content: msg.content
     }));
@@ -85,14 +83,19 @@ export async function handleMessage(ctx: MyContext) {
     // Build prompt with RAG context + history
     const messages = buildPrompt(truncatedRagContext, truncatedHistory, messageText);
 
-    // Generate AI response
+    // Generate AI response with dynamic provider
     let response: string;
     try {
-      response = await llmService.generateResponse({
+      // Create provider based on database configuration
+      const llmProvider = await createLLMProvider();
+
+      const llmResponse = await llmProvider.generateResponse({
         messages,
         systemPrompt: buildSystemPrompt('consultant'),
         maxTokens: budget.maxOutput
       });
+
+      response = llmResponse.content;
 
       // Optionally append citations for transparency
       if (citations) {

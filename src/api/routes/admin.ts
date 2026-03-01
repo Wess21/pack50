@@ -4,6 +4,9 @@ import { db } from '../../db/client.js';
 import { requireAdmin, generateToken, AdminRequest } from '../../middleware/admin-auth.js';
 import { encryptApiKey } from '../../utils/encryption.js';
 import { logger } from '../../utils/logger.js';
+import { AnthropicProvider } from '../../services/llm/anthropic-provider.js';
+import { OpenAIProvider } from '../../services/llm/openai-provider.js';
+import type { LLMProvider } from '../../services/llm/types.js';
 
 const router = Router();
 
@@ -138,6 +141,46 @@ router.put('/config', requireAdmin, async (req: AdminRequest, res) => {
   } catch (error: any) {
     logger.error('Update config error', { error: error.message });
     res.status(500).json({ error: 'Failed to update configuration' });
+  }
+});
+
+/**
+ * POST /api/admin/test-model
+ * Protected - test API key validity for a provider
+ */
+router.post('/test-model', requireAdmin, async (req, res) => {
+  try {
+    const { provider, api_key, model_name } = req.body;
+
+    if (!provider || !api_key) {
+      res.status(400).json({ error: 'provider and api_key required' });
+      return;
+    }
+
+    let testProvider: LLMProvider;
+
+    if (provider === 'anthropic') {
+      testProvider = new AnthropicProvider(
+        api_key,
+        model_name || 'claude-sonnet-4-5-20250929'
+      );
+    } else if (provider === 'openai') {
+      testProvider = new OpenAIProvider(api_key, model_name || 'gpt-4o');
+    } else {
+      res.status(400).json({ error: 'Invalid provider' });
+      return;
+    }
+
+    const isValid = await testProvider.testConnection();
+
+    if (isValid) {
+      res.json({ success: true, message: 'API key is valid' });
+    } else {
+      res.status(400).json({ success: false, message: 'API key is invalid' });
+    }
+  } catch (error: any) {
+    logger.error('API key test failed', { error: error.message });
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 

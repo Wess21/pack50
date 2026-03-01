@@ -1,4 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk';
+import type { LLMMessage } from './llm/types.js';
 import { logger } from '../utils/logger.js';
 
 export interface ContextBudget {
@@ -75,28 +75,21 @@ export class ContextManager {
    * @returns Truncated message array
    */
   truncateHistory(
-    messages: Anthropic.MessageParam[],
+    messages: LLMMessage[],
     maxTokenBudget: number
-  ): Anthropic.MessageParam[] {
+  ): LLMMessage[] {
     // Rough estimate: 1 token ≈ 4 characters
     const maxChars = maxTokenBudget * 4;
 
     let totalChars = 0;
-    const result: Anthropic.MessageParam[] = [];
+    const result: LLMMessage[] = [];
 
     // Iterate from most recent to oldest (reverse)
     for (let i = messages.length - 1; i >= 0; i--) {
       const msg = messages[i];
 
-      // Extract text content from message
-      const content = typeof msg.content === 'string'
-        ? msg.content
-        : Array.isArray(msg.content)
-        ? msg.content
-            .map(c => c.type === 'text' ? c.text : '')
-            .join('')
-        : '';
-
+      // Extract text content from message (LLMMessage.content is always string)
+      const content = msg.content;
       const contentLength = content.length;
 
       // Check if adding this message exceeds budget

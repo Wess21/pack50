@@ -9,7 +9,6 @@ import { WebhookService } from '../services/webhook.js';
 import { buildSystemPrompt } from '../prompts/system-prompts.js';
 import { buildPrompt } from '../prompts/prompt-builder.js';
 import { env } from '../config/env.js';
-import type Anthropic from '@anthropic-ai/sdk';
 
 let passed = 0;
 let failed = 0;
@@ -79,8 +78,8 @@ try {
   const contextManager = new ContextManager();
 
   // Create mock history with 15 messages
-  const mockHistory: Anthropic.MessageParam[] = Array.from({ length: 15 }, (_, i) => ({
-    role: i % 2 === 0 ? 'user' : 'assistant',
+  const mockHistory = Array.from({ length: 15 }, (_, i) => ({
+    role: (i % 2 === 0 ? 'user' : 'assistant') as 'user' | 'assistant',
     content: `Message ${i + 1}: This is test content for truncation testing`
   }));
 
@@ -110,9 +109,9 @@ try {
   console.log('\nTest 4: Prompt Builder...');
 
   const mockRagContext = 'Документ 1: Тестовая информация о продукте.\nДокумент 2: Дополнительные технические характеристики.';
-  const mockHistory: Anthropic.MessageParam[] = [
-    { role: 'user', content: 'Расскажите о продукте' },
-    { role: 'assistant', content: 'Вот информация о продукте...' }
+  const mockHistory = [
+    { role: 'user' as const, content: 'Расскажите о продукте' },
+    { role: 'assistant' as const, content: 'Вот информация о продукте...' }
   ];
   const userQuery = 'Какая цена?';
 

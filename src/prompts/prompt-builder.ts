@@ -1,4 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk';
+import type { LLMMessage } from '../services/llm/types.js';
 
 /**
  * Build prompt for LLM by assembling RAG context and conversation history
@@ -11,12 +11,12 @@ import Anthropic from '@anthropic-ai/sdk';
  */
 export function buildPrompt(
   ragContext: string,
-  conversationHistory: Anthropic.MessageParam[],
+  conversationHistory: LLMMessage[],
   userQuery: string
-): Anthropic.MessageParam[] {
+): LLMMessage[] {
   // Assemble messages: conversation history + RAG context with user query
   // RAG context placed at end to maximize LLM attention (avoid lost-in-middle)
-  const messages: Anthropic.MessageParam[] = [
+  const messages: LLMMessage[] = [
     ...conversationHistory,
     {
       role: 'user',
