@@ -60,7 +60,10 @@
       "Bash(npm ls:*)",
       "Bash(npm run build:*)",
       "Bash([ -f \"src/services/llm.ts\" ])",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(npm create:*)",
+      "Bash(npx tailwindcss init -p)",
+      "Bash(./node_modules/.bin/tailwindcss:*)"
     ]
   }
 }

@@ -7,6 +7,7 @@ import { logger } from '../../utils/logger.js';
 import { AnthropicProvider } from '../../services/llm/anthropic-provider.js';
 import { OpenAIProvider } from '../../services/llm/openai-provider.js';
 import type { LLMProvider } from '../../services/llm/types.js';
+import { getDashboardMetrics } from '../../services/analytics-queries.js';
 
 const router = Router();
 
@@ -181,6 +182,26 @@ router.post('/test-model', requireAdmin, async (req, res) => {
   } catch (error: any) {
     logger.error('API key test failed', { error: error.message });
     res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * GET /api/admin/analytics
+ * Protected - get dashboard metrics
+ */
+router.get('/analytics', requireAdmin, async (req, res) => {
+  try {
+    const days = parseInt((req.query.days as string) || '30');
+
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+
+    const metrics = await getDashboardMetrics(startDate, endDate);
+    res.json(metrics);
+  } catch (error: any) {
+    logger.error('Analytics query error', { error: error.message });
+    res.status(500).json({ error: 'Failed to fetch analytics' });
   }
 });
 
