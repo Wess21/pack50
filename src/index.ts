@@ -3,6 +3,7 @@ import { initDatabase, closeDatabase } from './db/client.js';
 import { bot, startBot, stopBot } from './bot/index.js';
 import { startWebhook } from './bot/webhook.js';
 import { logger } from './utils/logger.js';
+import { EmbeddingService } from './services/embedding.js';
 
 /**
  * Main application entry point
@@ -19,6 +20,11 @@ async function main() {
     // Initialize database schema
     logger.info('Initializing database...');
     await initDatabase();
+
+    // Preload embedding model
+    logger.info('Preloading embedding model...');
+    await EmbeddingService.preloadEmbeddingModel();
+    logger.info('Embedding model preloaded');
 
     // Start bot in appropriate mode
     if (env.WEBHOOK_URL && env.WEBHOOK_SECRET) {
