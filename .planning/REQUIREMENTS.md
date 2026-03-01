@@ -40,12 +40,12 @@ Requirements for MVP (демонстрация потенциальным кли
 - [ ] **DOC-03**: Администратор может добавлять URL для индексации контента
 - [ ] **DOC-04**: Документы автоматически разбиваются на чанки (1000 символов, 20% overlap)
 - [ ] **DOC-05**: Чанки эмбеддятся через локальную модель (all-MiniLM-L6-v2)
-- [ ] **DOC-06**: Эмбеддинги сохраняются в PostgreSQL с pgvector extension
-- [ ] **DOC-07**: Метаданные документов сохраняются (source, page, date, doc_type)
+- [x] **DOC-06**: Эмбеддинги сохраняются в PostgreSQL с pgvector extension
+- [x] **DOC-07**: Метаданные документов сохраняются (source, page, date, doc_type)
 
 ### RAG Retrieval
 
-- [ ] **RAG-01**: Бот эмбеддит вопрос пользователя через ту же модель
+- [x] **RAG-01**: Бот эмбеддит вопрос пользователя через ту же модель
 - [ ] **RAG-02**: Бот находит Top-5 релевантных чанков через vector similarity search
 - [ ] **RAG-03**: Бот фильтрует результаты по метаданным (опционально)
 - [ ] **RAG-04**: Бот цитирует источники в ответах (документ, страница)
@@ -176,9 +176,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DOC-03 | Phase 2 | Pending |
 | DOC-04 | Phase 2 | Pending |
 | DOC-05 | Phase 2 | Pending |
-| DOC-06 | Phase 2 | Pending |
-| DOC-07 | Phase 2 | Pending |
-| RAG-01 | Phase 2 | Pending |
+| DOC-06 | Phase 2 | Complete |
+| DOC-07 | Phase 2 | Complete |
+| RAG-01 | Phase 2 | Complete |
 | RAG-02 | Phase 2 | Pending |
 | RAG-03 | Phase 2 | Pending |
 | RAG-04 | Phase 2 | Pending |
