@@ -94,7 +94,8 @@ router.post('/url', async (req: Request, res: Response): Promise<void> => {
     try {
       new URL(url);
     } catch {
-      return res.status(400).json({ error: 'Invalid URL format' });
+      res.status(400).json({ error: 'Invalid URL format' });
+      return;
     }
 
     const jobId = uuidv4();
