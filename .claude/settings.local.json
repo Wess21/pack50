@@ -63,7 +63,8 @@
       "Bash(find:*)",
       "Bash(npm create:*)",
       "Bash(npx tailwindcss init -p)",
-      "Bash(./node_modules/.bin/tailwindcss:*)"
+      "Bash(./node_modules/.bin/tailwindcss:*)",
+      "Bash(chmod:*)"
     ]
   }
 }
