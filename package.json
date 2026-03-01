@@ -10,7 +10,8 @@
   "scripts": {
     "dev": "nodemon --exec tsx src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "test:rag": "tsx src/test/rag-test.ts"
   },
   "keywords": [
     "telegram",

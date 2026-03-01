@@ -7,6 +7,7 @@ import { loggerMiddleware } from './middleware/logger.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { registerCommands } from './commands.js';
 import { leadCollectionFlow } from './conversations/lead-collection.js';
+import { handleMessage } from './handlers/message-handler.js';
 import { logger } from '../utils/logger.js';
 
 // Create bot instance with custom context type
@@ -28,32 +29,8 @@ bot.use(createConversation(leadCollectionFlow));
 // 5. Commands - register command handlers
 registerCommands(bot);
 
-// 6. Test handler - verify session persistence across restarts
-// Only responds when NOT in active conversation
-bot.on('message:text', async (ctx) => {
-  // Skip if it's a command
-  if (ctx.message.text.startsWith('/')) {
-    return;
-  }
-
-  // Skip if in active conversation
-  if (ctx.session.conversationState !== 'idle') {
-    return;
-  }
-
-  // Update last activity timestamp
-  ctx.session.lastActivityAt = new Date();
-
-  // Increment message counter for testing persistence
-  const count = (ctx.session.messageCount || 0) + 1;
-  ctx.session.messageCount = count;
-
-  await ctx.reply(
-    `Message ${count} received (session persists across restarts).\n\n` +
-    `Current state: ${ctx.session.conversationState}\n` +
-    `Use /start to begin a conversation.`
-  );
-});
+// 6. Message handler - RAG retrieval for non-conversation messages
+bot.on('message:text', handleMessage);
 
 // 7. Global error handler - catch all errors (prevents crashes)
 bot.catch(errorHandler);
