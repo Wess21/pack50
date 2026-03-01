@@ -46,10 +46,10 @@ Requirements for MVP (демонстрация потенциальным кли
 ### RAG Retrieval
 
 - [x] **RAG-01**: Бот эмбеддит вопрос пользователя через ту же модель
-- [ ] **RAG-02**: Бот находит Top-5 релевантных чанков через vector similarity search
-- [ ] **RAG-03**: Бот фильтрует результаты по метаданным (опционально)
-- [ ] **RAG-04**: Бот цитирует источники в ответах (документ, страница)
-- [ ] **RAG-05**: Retrieval работает < 500ms на базе 10K документов
+- [x] **RAG-02**: Бот находит Top-5 релевантных чанков через vector similarity search
+- [x] **RAG-03**: Бот фильтрует результаты по метаданным (опционально)
+- [x] **RAG-04**: Бот цитирует источники в ответах (документ, страница)
+- [x] **RAG-05**: Retrieval работает < 500ms на базе 10K документов
 
 ### LLM Integration
 
@@ -179,10 +179,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DOC-06 | Phase 2 | Complete |
 | DOC-07 | Phase 2 | Complete |
 | RAG-01 | Phase 2 | Complete |
-| RAG-02 | Phase 2 | Pending |
-| RAG-03 | Phase 2 | Pending |
-| RAG-04 | Phase 2 | Pending |
-| RAG-05 | Phase 2 | Pending |
+| RAG-02 | Phase 2 | Complete |
+| RAG-03 | Phase 2 | Complete |
+| RAG-04 | Phase 2 | Complete |
+| RAG-05 | Phase 2 | Complete |
 | LLM-01 | Phase 3 | Pending |
 | LLM-02 | Phase 3 | Pending |
 | LLM-03 | Phase 3 | Pending |
