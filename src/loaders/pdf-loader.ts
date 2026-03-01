@@ -1,5 +1,8 @@
-import pdf from 'pdf-parse';
+import * as pdfParse from 'pdf-parse';
 import { readFile } from 'fs/promises';
+
+// pdf-parse exports as CommonJS module
+const pdf = (pdfParse as any).default || pdfParse;
 
 export interface PDFPage {
   pageNumber: number;
