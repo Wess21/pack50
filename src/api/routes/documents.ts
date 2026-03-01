@@ -13,7 +13,7 @@ const upload = multer({
   limits: {
     fileSize: 10 * 1024 * 1024  // 10MB limit
   },
-  fileFilter: (req, file, cb) => {
+  fileFilter: (_req, file, cb) => {
     const allowedTypes = ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
     if (allowedTypes.includes(file.mimetype)) {
       cb(null, true);
@@ -30,10 +30,11 @@ const jobs = new Map<string, any>();
  * POST /api/documents/upload
  * Upload PDF or DOCX file for processing
  */
-router.post('/upload', upload.single('file'), async (req: Request, res: Response) => {
+router.post('/upload', upload.single('file'), async (req: Request, res: Response): Promise<void> => {
   try {
     if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded' });
+      res.status(400).json({ error: 'No file uploaded' });
+      return;
     }
 
     const jobId = uuidv4();
@@ -60,7 +61,8 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
         jobs.set(jobId, result);
       });
     } else {
-      return res.status(400).json({ error: 'Unsupported file type' });
+      res.status(400).json({ error: 'Unsupported file type' });
+      return;
     }
 
     // Return immediately with job ID
@@ -79,12 +81,13 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
  * POST /api/documents/url
  * Add URL for content extraction
  */
-router.post('/url', async (req: Request, res: Response) => {
+router.post('/url', async (req: Request, res: Response): Promise<void> => {
   try {
     const { url } = req.body;
 
     if (!url || typeof url !== 'string') {
-      return res.status(400).json({ error: 'URL is required' });
+      res.status(400).json({ error: 'URL is required' });
+      return;
     }
 
     // Validate URL format
@@ -124,12 +127,13 @@ router.post('/url', async (req: Request, res: Response) => {
  * GET /api/documents/status/:jobId
  * Check processing status
  */
-router.get('/status/:jobId', (req: Request, res: Response) => {
+router.get('/status/:jobId', (req: Request, res: Response): void => {
   const { jobId } = req.params;
   const job = jobs.get(jobId);
 
   if (!job) {
-    return res.status(404).json({ error: 'Job not found' });
+    res.status(404).json({ error: 'Job not found' });
+    return;
   }
 
   res.json(job);

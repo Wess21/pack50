@@ -31,7 +31,7 @@ export async function loadPDF(filePath: string): Promise<PDFDocument> {
   // Use render_page callback to capture per-page text
   const pages: PDFPage[] = [];
 
-  const pdfData = await pdf(buffer, {
+  await pdf(buffer, {
     pagerender: async (pageData: any) => {
       const textContent = await pageData.getTextContent();
       const text = textContent.items
