@@ -59,7 +59,8 @@
       "Bash(wc:*)",
       "Bash(npm ls:*)",
       "Bash(npm run build:*)",
-      "Bash([ -f \"src/services/llm.ts\" ])"
+      "Bash([ -f \"src/services/llm.ts\" ])",
+      "Bash(find:*)"
     ]
   }
 }

@@ -100,3 +100,69 @@ WITH (lists = 100);
 -- GIN index for metadata filtering
 CREATE INDEX IF NOT EXISTS idx_chunks_metadata
 ON document_chunks USING gin(metadata);
+
+-- ============================================================================
+-- Phase 4: Admin Interface Tables
+-- ============================================================================
+
+-- Bot configuration table (singleton - only 1 row)
+CREATE TABLE IF NOT EXISTS bot_config (
+  id INTEGER PRIMARY KEY DEFAULT 1,
+  active_model VARCHAR(50) DEFAULT 'claude-sonnet-4-5',
+  active_template VARCHAR(50) DEFAULT 'consultant',
+  anthropic_api_key_encrypted TEXT,
+  openai_api_key_encrypted TEXT,
+  encryption_iv TEXT,
+  webhook_url TEXT,
+  default_filters JSONB,
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  CONSTRAINT singleton CHECK (id = 1)
+);
+
+-- Insert singleton row
+INSERT INTO bot_config (id) VALUES (1)
+ON CONFLICT (id) DO NOTHING;
+
+-- Custom system prompts table
+CREATE TABLE IF NOT EXISTS system_prompts (
+  template_name VARCHAR(50) PRIMARY KEY,
+  content TEXT NOT NULL,
+  variables JSONB,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Analytics events table
+CREATE TABLE IF NOT EXISTS analytics_events (
+  id BIGSERIAL PRIMARY KEY,
+  event_type VARCHAR(50) NOT NULL,
+  user_id BIGINT,
+  metadata JSONB DEFAULT '{}',
+  timestamp TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Indexes for analytics queries
+CREATE INDEX IF NOT EXISTS idx_analytics_timestamp ON analytics_events(timestamp);
+CREATE INDEX IF NOT EXISTS idx_analytics_event_type ON analytics_events(event_type);
+CREATE INDEX IF NOT EXISTS idx_analytics_user_id ON analytics_events(user_id);
+
+-- Admin users table
+CREATE TABLE IF NOT EXISTS admin_users (
+  id SERIAL PRIMARY KEY,
+  username VARCHAR(50) UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Trigger for bot_config updated_at
+DROP TRIGGER IF EXISTS update_bot_config_updated_at ON bot_config;
+CREATE TRIGGER update_bot_config_updated_at
+  BEFORE UPDATE ON bot_config
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
+-- Trigger for system_prompts updated_at
+DROP TRIGGER IF EXISTS update_system_prompts_updated_at ON system_prompts;
+CREATE TRIGGER update_system_prompts_updated_at
+  BEFORE UPDATE ON system_prompts
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
