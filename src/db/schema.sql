@@ -78,3 +78,25 @@ CREATE TRIGGER update_leads_updated_at
   BEFORE UPDATE ON leads
   FOR EACH ROW
   EXECUTE FUNCTION update_updated_at_column();
+
+-- Enable pgvector extension for vector similarity search
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- Document chunks table: stores document content with embeddings for RAG
+CREATE TABLE IF NOT EXISTS document_chunks (
+  id BIGSERIAL PRIMARY KEY,
+  content TEXT NOT NULL,
+  embedding vector(384),  -- all-MiniLM-L6-v2 dimensions
+  metadata JSONB NOT NULL DEFAULT '{}',
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- IVFFlat index for 10K document scale (sqrt(10000) = 100 lists)
+-- Optimized for cosine similarity search
+CREATE INDEX IF NOT EXISTS idx_chunks_embedding
+ON document_chunks USING ivfflat (embedding vector_cosine_ops)
+WITH (lists = 100);
+
+-- GIN index for metadata filtering
+CREATE INDEX IF NOT EXISTS idx_chunks_metadata
+ON document_chunks USING gin(metadata);
