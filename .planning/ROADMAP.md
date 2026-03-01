@@ -73,11 +73,12 @@ Plans:
 4. Bot sends collected user data to configured CRM webhook URL
 5. Failed webhook deliveries retry with exponential backoff
 
-**Plans**: TBD
+**Plans**: 3 plans in 2 waves
 
 Plans:
-- [ ] 03-01: TBD during planning
-- [ ] 03-02: TBD during planning
+- [ ] 03-01-PLAN.md — LLM service and context management (Claude API integration, token budget allocation, system prompts)
+- [ ] 03-02-PLAN.md — Webhook service with retry logic (CRM delivery with exponential backoff)
+- [ ] 03-03-PLAN.md — Bot integration and end-to-end testing (LLM + RAG + webhooks integration)
 
 ### Phase 4: Metadata & Retrieval Quality
 **Goal**: Bot delivers more accurate answers through enhanced retrieval and administrators can configure bot behavior through interface
@@ -146,7 +147,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 1. Core Conversation Engine | 0/4 | Planning complete | - |
 | 2. Document Ingestion & RAG | 0/3 | Complete    | 2026-03-01 |
-| 3. LLM Integration | 0/TBD | Not started | - |
+| 3. LLM Integration | 0/3 | Planning complete | - |
 | 4. Metadata & Admin | 0/TBD | Not started | - |
 | 5. Deployment Automation | 0/TBD | Not started | - |
 | 6. Security & Monitoring | 0/TBD | Not started | - |
@@ -193,4 +194,4 @@ Plans:
 ---
 
 **Created:** 2026-02-27
-**Last updated:** 2026-02-28
+**Last updated:** 2026-03-01
