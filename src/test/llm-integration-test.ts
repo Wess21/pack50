@@ -6,7 +6,7 @@
 import { LLMService } from '../services/llm.js';
 import { ContextManager } from '../services/context-manager.js';
 import { WebhookService } from '../services/webhook.js';
-import { buildSystemPrompt, SYSTEM_PROMPTS } from '../prompts/system-prompts.js';
+import { buildSystemPrompt } from '../prompts/system-prompts.js';
 import { buildPrompt } from '../prompts/prompt-builder.js';
 import { env } from '../config/env.js';
 import type Anthropic from '@anthropic-ai/sdk';
@@ -181,6 +181,8 @@ try {
       timestamp: new Date().toISOString(),
       webhook_id: crypto.randomUUID(),
       user_id: 'test-user-123',
+      username: 'test_user',
+      message: 'Test message for webhook',
       collected_data: {
         name: 'Иван Тестов',
         email: 'test@example.com',

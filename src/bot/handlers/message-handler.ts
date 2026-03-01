@@ -137,6 +137,8 @@ export async function handleMessage(ctx: MyContext) {
           timestamp: new Date().toISOString(),
           webhook_id: crypto.randomUUID(),
           user_id: String(ctx.from?.id || 0),
+          username: ctx.from?.username,
+          message: messageText,
           collected_data: {
             name: leadData.name,
             email: leadData.email,
