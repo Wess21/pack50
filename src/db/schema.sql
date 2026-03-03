@@ -123,6 +123,27 @@ CREATE TABLE IF NOT EXISTS bot_config (
 INSERT INTO bot_config (id) VALUES (1)
 ON CONFLICT (id) DO NOTHING;
 
+-- Add columns to bot_config for backwards compatibility
+ALTER TABLE bot_config ADD COLUMN IF NOT EXISTS api_base_url TEXT;
+ALTER TABLE bot_config ADD COLUMN IF NOT EXISTS llm_model_name TEXT DEFAULT 'gpt-4o';
+
+-- LLM providers table for multi-provider management
+CREATE TABLE IF NOT EXISTS llm_providers (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(100) NOT NULL UNIQUE,
+  provider_type VARCHAR(20) NOT NULL CHECK (provider_type IN ('anthropic', 'openai')),
+  api_key_encrypted TEXT NOT NULL,
+  encryption_iv TEXT NOT NULL,
+  api_base_url TEXT,
+  model_name TEXT,
+  is_active BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Add index for active provider lookup
+CREATE INDEX IF NOT EXISTS idx_llm_providers_active ON llm_providers(is_active) WHERE is_active = TRUE;
+
 -- Custom system prompts table
 CREATE TABLE IF NOT EXISTS system_prompts (
   template_name VARCHAR(50) PRIMARY KEY,
@@ -164,5 +185,12 @@ CREATE TRIGGER update_bot_config_updated_at
 DROP TRIGGER IF EXISTS update_system_prompts_updated_at ON system_prompts;
 CREATE TRIGGER update_system_prompts_updated_at
   BEFORE UPDATE ON system_prompts
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
+-- Trigger for llm_providers updated_at
+DROP TRIGGER IF EXISTS update_llm_providers_updated_at ON llm_providers;
+CREATE TRIGGER update_llm_providers_updated_at
+  BEFORE UPDATE ON llm_providers
   FOR EACH ROW
   EXECUTE FUNCTION update_updated_at_column();
