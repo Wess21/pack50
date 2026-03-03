@@ -82,20 +82,84 @@ CREATE TRIGGER update_leads_updated_at
 -- Enable pgvector extension for vector similarity search
 CREATE EXTENSION IF NOT EXISTS vector;
 
+-- Create documents table to track uploaded files
+CREATE TABLE IF NOT EXISTS documents (
+  id SERIAL PRIMARY KEY,
+  source TEXT NOT NULL UNIQUE,  -- Original filename or URL
+  source_type VARCHAR(20) NOT NULL CHECK (source_type IN ('pdf', 'docx', 'txt', 'url')),
+  title TEXT,  -- User-friendly title
+  description TEXT,  -- Document description
+  tags TEXT[],  -- Searchable tags
+  priority INTEGER DEFAULT 0,  -- Search priority weight (higher = more important)
+  chunk_count INTEGER DEFAULT 0,  -- Number of chunks from this document
+  total_size_bytes BIGINT,  -- Original file size
+  status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'archived', 'processing', 'failed')),
+  upload_date TIMESTAMPTZ DEFAULT NOW(),
+  last_used_at TIMESTAMPTZ,  -- Last time document was used in RAG response
+  usage_count INTEGER DEFAULT 0,  -- How many times chunks from this doc were retrieved
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Trigger for documents updated_at
+DROP TRIGGER IF EXISTS update_documents_updated_at ON documents;
+CREATE TRIGGER update_documents_updated_at
+  BEFORE UPDATE ON documents
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
 -- Document chunks table: stores document content with embeddings for RAG
 CREATE TABLE IF NOT EXISTS document_chunks (
   id BIGSERIAL PRIMARY KEY,
   content TEXT NOT NULL,
   embedding vector(384),  -- all-MiniLM-L6-v2 dimensions
   metadata JSONB NOT NULL DEFAULT '{}',
+  source TEXT,
   created_at TIMESTAMP DEFAULT NOW()
 );
+
+-- Add source column to document_chunks if not exists (for backwards compatibility)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'document_chunks' AND column_name = 'source'
+  ) THEN
+    ALTER TABLE document_chunks ADD COLUMN source TEXT;
+  END IF;
+END $$;
+
+-- Migrate existing document_chunks to documents table
+INSERT INTO documents (source, source_type, chunk_count, upload_date)
+SELECT
+  COALESCE(metadata->>'source', 'unknown') as source,
+  CASE
+    WHEN COALESCE(metadata->>'source', '') LIKE '%.pdf' THEN 'pdf'
+    WHEN COALESCE(metadata->>'source', '') LIKE '%.docx' THEN 'docx'
+    WHEN COALESCE(metadata->>'source', '') LIKE 'http%' THEN 'url'
+    ELSE 'txt'
+  END as source_type,
+  COUNT(*) as chunk_count,
+  MIN(created_at) as upload_date
+FROM document_chunks
+WHERE metadata->>'source' IS NOT NULL
+GROUP BY metadata->>'source'
+ON CONFLICT (source) DO UPDATE
+SET chunk_count = EXCLUDED.chunk_count;
+
+-- Update document_chunks.source from metadata for existing records
+UPDATE document_chunks
+SET source = metadata->>'source'
+WHERE source IS NULL AND metadata->>'source' IS NOT NULL;
 
 -- IVFFlat index for 10K document scale (sqrt(10000) = 100 lists)
 -- Optimized for cosine similarity search
 CREATE INDEX IF NOT EXISTS idx_chunks_embedding
 ON document_chunks USING ivfflat (embedding vector_cosine_ops)
 WITH (lists = 100);
+
+-- Create index on document_chunks.source for fast lookup
+CREATE INDEX IF NOT EXISTS idx_document_chunks_source ON document_chunks(source);
 
 -- GIN index for metadata filtering
 CREATE INDEX IF NOT EXISTS idx_chunks_metadata
@@ -108,8 +172,9 @@ ON document_chunks USING gin(metadata);
 -- Bot configuration table (singleton - only 1 row)
 CREATE TABLE IF NOT EXISTS bot_config (
   id INTEGER PRIMARY KEY DEFAULT 1,
-  active_model VARCHAR(50) DEFAULT 'claude-sonnet-4-5',
-  active_template VARCHAR(50) DEFAULT 'consultant',
+  active_model TEXT DEFAULT 'claude-sonnet-4-5',
+  active_template TEXT DEFAULT 'consultant',
+  greeting_message TEXT DEFAULT 'Привет! Я ИИ-ассистент, готов помочь с вашими документами.',
   anthropic_api_key_encrypted TEXT,
   openai_api_key_encrypted TEXT,
   encryption_iv TEXT,

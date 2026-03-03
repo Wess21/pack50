@@ -3,6 +3,7 @@ import type { Conversation } from '@grammyjs/conversations';
 import type { MyContext } from '../../types/context.js';
 import { extractDataFromMessage } from '../../api/services/data-extraction.js';
 import { manageConversationContext, isLeadComplete } from './helpers.js';
+import { db } from '../../db/client.js';
 import {
   findOrCreateUser,
   createConversation,
@@ -42,14 +43,27 @@ export async function leadCollectionFlow(
     ctx.session.lastActivityAt = new Date();
   });
 
+  // Fetch greeting from config or use default
+  let greetingMsg = 'Привет! Я помогу вам оставить заявку. Как вас зовут?';
+  try {
+    const configResult = await conversation.external(async () => {
+      return await db.query('SELECT greeting_message FROM bot_config WHERE id = 1');
+    });
+    if (configResult.rows.length > 0 && configResult.rows[0].greeting_message) {
+      greetingMsg = configResult.rows[0].greeting_message;
+    }
+  } catch (err) {
+    logger.warn('Failed to fetch greeting_message from bot_config, using default', { error: err });
+  }
+
   // Welcome message
-  await ctx.reply('Привет! Я помогу вам оставить заявку. Как вас зовут?');
+  await ctx.reply(greetingMsg);
 
   // Add assistant message to history
   await conversation.external(async () => {
     ctx.session.messageHistory.push({
       role: 'assistant',
-      content: 'Привет! Я помогу вам оставить заявку. Как вас зовут?',
+      content: greetingMsg,
       timestamp: new Date(),
     });
   });

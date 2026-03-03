@@ -1,6 +1,7 @@
 import { db } from '../db/client.js';
 import { embedText } from './embedding.js';
 import { logger } from '../utils/logger.js';
+import { DocumentsRepository } from '../db/repositories/documents-repository.js';
 
 export interface SearchResult {
   content: string;
@@ -139,7 +140,20 @@ export async function searchDocuments(
     };
   });
 
-  // 5. Warn if no results found
+  // 5. Track document usage statistics
+  if (searchResults.length > 0) {
+    // Collect unique sources from results
+    const sources = [...new Set(searchResults.map(r => r.citation.source))];
+
+    // Increment usage count for each document (non-blocking)
+    for (const source of sources) {
+      DocumentsRepository.incrementUsageCount(source).catch(err => {
+        logger.error('Failed to track document usage', { source, error: err.message });
+      });
+    }
+  }
+
+  // 6. Warn if no results found
   if (searchResults.length === 0) {
     logger.warn('No relevant documents found', { query, minSimilarity });
   }

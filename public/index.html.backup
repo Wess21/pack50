@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pack50 Admin Panel</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f5f5f5;
+      color: #333;
+      line-height: 1.6;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    header {
+      background: #fff;
+      border-bottom: 2px solid #000;
+      padding: 20px;
+      margin-bottom: 30px;
+    }
+
+    h1 {
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+
+    .section {
+      background: #fff;
+      border: 1px solid #ddd;
+      padding: 25px;
+      margin-bottom: 20px;
+    }
+
+    .section h2 {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 20px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #eee;
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    label {
+      display: block;
+      font-weight: 500;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+
+    input[type="text"],
+    input[type="password"],
+    input[type="file"],
+    textarea,
+    select {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #ccc;
+      font-size: 14px;
+      font-family: inherit;
+      background: #fff;
+    }
+
+    input[type="text"]:focus,
+    input[type="password"]:focus,
+    textarea:focus {
+      outline: none;
+      border-color: #000;
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 100px;
+      font-family: 'Monaco', 'Courier New', monospace;
+    }
+
+    button {
+      background: #000;
+      color: #fff;
+      border: none;
+      padding: 12px 24px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      font-family: inherit;
+    }
+
+    button:hover {
+      background: #333;
+    }
+
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+
+    .status {
+      padding: 12px;
+      margin-top: 15px;
+      font-size: 13px;
+      border-left: 3px solid #000;
+      background: #f9f9f9;
+    }
+
+    .status.success {
+      border-color: #28a745;
+      background: #f0fff4;
+      color: #155724;
+    }
+
+    .status.error {
+      border-color: #dc3545;
+      background: #fff5f5;
+      color: #721c24;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    @media (max-width: 768px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .login-container {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .login-box {
+      background: #fff;
+      padding: 40px;
+      border: 1px solid #ddd;
+      width: 100%;
+      max-width: 400px;
+    }
+
+    .info {
+      font-size: 13px;
+      color: #666;
+      margin-top: 8px;
+    }
+  </style>
+</head>
+<body>
+  <!-- Login Screen -->
+  <div id="loginScreen" class="login-container">
+    <div class="login-box">
+      <h1 style="margin-bottom: 30px;">Pack50 Admin</h1>
+      <form id="loginForm">
+        <div class="form-group">
+          <label>Username</label>
+          <input type="text" id="loginUsername" value="admin" required>
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <input type="password" id="loginPassword" required>
+          <div class="info">Default: changeme_OtzZjXJDMu4=</div>
+        </div>
+        <button type="submit">Login</button>
+        <div id="loginStatus" class="status hidden"></div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Admin Panel -->
+  <div id="adminPanel" class="hidden">
+    <header>
+      <div class="container" style="display: flex; justify-content: space-between; align-items: center;">
+        <h1>Pack50 Admin Panel</h1>
+        <button onclick="logout()" style="background: #666;">Logout</button>
+      </div>
+    </header>
+
+    <div class="container">
+      <!-- Upload Documents -->
+      <div class="section">
+        <h2>Upload Documents</h2>
+        <form id="uploadForm">
+          <div class="form-group">
+            <label>Select File (PDF, DOCX, TXT)</label>
+            <input type="file" id="fileInput" accept=".pdf,.docx,.txt" required>
+          </div>
+          <button type="submit">Upload</button>
+          <div id="uploadStatus" class="status hidden"></div>
+        </form>
+      </div>
+
+      <!-- API Keys Configuration -->
+      <div class="section">
+        <h2>API Keys Configuration</h2>
+        <div class="info" style="margin-bottom: 20px; padding: 12px; background: #fff9e6; border-left: 3px solid #ffc107;">
+          Add at least one API key. You can use either Anthropic Claude OR OpenAI GPT.
+        </div>
+        <form id="configForm">
+          <div class="grid">
+            <div class="form-group">
+              <label>Anthropic API Key (Optional)</label>
+              <input type="password" id="anthropicKey" placeholder="sk-ant-api03-...">
+              <div class="info">For Claude AI responses</div>
+            </div>
+            <div class="form-group">
+              <label>OpenAI API Key (Optional)</label>
+              <input type="password" id="openaiKey" placeholder="sk-proj-...">
+              <div class="info">For GPT AI responses</div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>API Base URL (Optional)</label>
+            <input type="text" id="apiBaseUrl" placeholder="https://api.vsellm.ru/v1">
+            <div class="info">Custom API endpoint (e.g., https://api.vsellm.ru/v1)</div>
+          </div>
+          <div class="grid">
+            <div class="form-group">
+              <label>Active LLM Provider</label>
+              <select id="llmProvider">
+                <option value="anthropic">Anthropic Claude</option>
+                <option value="openai">OpenAI GPT</option>
+              </select>
+              <div class="info">Select which API to use</div>
+            </div>
+            <div class="form-group">
+              <label>Model Name</label>
+              <input type="text" id="llmModelName" placeholder="gpt-4o or anthropic/claude-haiku-4.5">
+              <div class="info">Model identifier</div>
+            </div>
+          </div>
+          <button type="submit">Save API Keys</button>
+          <div id="configStatus" class="status hidden"></div>
+        </form>
+      </div>
+
+      <!-- System Prompts -->
+      <div class="section">
+        <h2>System Prompts</h2>
+        <form id="promptForm">
+          <div class="form-group">
+            <label>Main System Prompt</label>
+            <textarea id="systemPrompt" placeholder="You are a helpful assistant...">Вы - AI-ассистент компании Pack50. Отвечайте на вопросы пользователей на основе предоставленного контекста из документов. Если информации нет в контексте, честно скажите об этом.</textarea>
+          </div>
+          <div class="form-group">
+            <label>Greeting Message</label>
+            <textarea id="greetingPrompt" placeholder="Welcome message..." style="min-height: 60px;">Привет! Я бот Pack50. Задайте мне вопрос о компании или загруженных документах.</textarea>
+          </div>
+          <button type="submit">Save Prompts</button>
+          <div id="promptStatus" class="status hidden"></div>
+        </form>
+      </div>
+
+      <!-- Analytics -->
+      <div class="section">
+        <h2>Analytics</h2>
+        <button onclick="loadAnalytics()">Refresh Analytics</button>
+        <div id="analyticsData" class="status hidden" style="margin-top: 20px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let authToken = localStorage.getItem('authToken');
+
+    // Helper functions
+    function showStatus(element, message, type) {
+      element.className = 'status ' + type;
+      element.innerHTML = message;
+      element.classList.remove('hidden');
+    }
+
+    function showAdminPanel() {
+      console.log('Showing admin panel...');
+      const loginScreen = document.getElementById('loginScreen');
+      const adminPanel = document.getElementById('adminPanel');
+
+      console.log('loginScreen:', loginScreen);
+      console.log('adminPanel:', adminPanel);
+
+      if (loginScreen && adminPanel) {
+        loginScreen.classList.add('hidden');
+        adminPanel.classList.remove('hidden');
+        console.log('Admin panel shown successfully');
+      } else {
+        console.error('Elements not found!');
+      }
+    }
+
+    function logout() {
+      localStorage.removeItem('authToken');
+      authToken = null;
+      document.getElementById('loginScreen').classList.remove('hidden');
+      document.getElementById('adminPanel').classList.add('hidden');
+    }
+
+    async function loadConfig() {
+      try {
+        const response = await fetch('/api/admin/config', {
+          headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+
+        if (response.ok) {
+          const config = await response.json();
+
+          if (config.anthropicApiKey) {
+            document.getElementById('anthropicKey').value = '••••••••';
+          }
+          if (config.openaiApiKey) {
+            document.getElementById('openaiKey').value = '••••••••';
+          }
+          if (config.llmProvider) {
+            document.getElementById('llmProvider').value = config.llmProvider;
+          }
+          if (config.apiBaseUrl) {
+            document.getElementById('apiBaseUrl').value = config.apiBaseUrl;
+          }
+          if (config.llmModelName) {
+            document.getElementById('llmModelName').value = config.llmModelName;
+          }
+          if (config.systemPrompt) {
+            document.getElementById('systemPrompt').value = config.systemPrompt;
+          }
+          if (config.greetingMessage) {
+            document.getElementById('greetingPrompt').value = config.greetingMessage;
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load config:', error);
+      }
+    }
+
+    async function loadAnalytics() {
+      const status = document.getElementById('analyticsData');
+
+      try {
+        const response = await fetch('/api/admin/analytics?days=7', {
+          headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          showStatus(status, `
+            Total Messages: ${data.totalMessages || 0}<br>
+            Unique Users: ${data.uniqueUsers || 0}<br>
+            Average Response Time: ${data.avgResponseTime ? data.avgResponseTime.toFixed(2) + 's' : 'N/A'}
+          `, 'success');
+        } else {
+          showStatus(status, 'Failed to load analytics', 'error');
+        }
+      } catch (error) {
+        showStatus(status, 'Connection error', 'error');
+      }
+    }
+
+    // Check if already logged in
+    if (authToken) {
+      showAdminPanel();
+      loadConfig();
+    }
+
+    // Login
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const username = document.getElementById('loginUsername').value;
+      const password = document.getElementById('loginPassword').value;
+      const status = document.getElementById('loginStatus');
+
+      console.log('Attempting login:', { username });
+
+      try {
+        const response = await fetch('/api/admin/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+
+        console.log('Response status:', response.status);
+        const data = await response.json();
+        console.log('Response data:', data);
+
+        if (response.ok) {
+          authToken = data.token;
+          localStorage.setItem('authToken', authToken);
+          console.log('Token saved, showing admin panel...');
+          showAdminPanel();
+          loadConfig();
+        } else {
+          showStatus(status, data.error || 'Login failed', 'error');
+        }
+      } catch (error) {
+        console.error('Login error:', error);
+        showStatus(status, 'Connection error: ' + error.message, 'error');
+      }
+    });
+
+    // Upload Document
+    document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fileInput = document.getElementById('fileInput');
+      const status = document.getElementById('uploadStatus');
+      const file = fileInput.files[0];
+
+      if (!file) {
+        showStatus(status, 'Please select a file', 'error');
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('file', file);
+
+      try {
+        const response = await fetch('/api/documents/upload', {
+          method: 'POST',
+          body: formData
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+          showStatus(status, `Upload successful! Job ID: ${data.jobId}`, 'success');
+          fileInput.value = '';
+        } else {
+          showStatus(status, data.error || 'Upload failed', 'error');
+        }
+      } catch (error) {
+        showStatus(status, 'Upload error: ' + error.message, 'error');
+      }
+    });
+
+    // Save Configuration
+    document.getElementById('configForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const status = document.getElementById('configStatus');
+
+      const anthropicKey = document.getElementById('anthropicKey').value;
+      const openaiKey = document.getElementById('openaiKey').value;
+      const provider = document.getElementById('llmProvider').value;
+      const baseUrl = document.getElementById('apiBaseUrl').value;
+      const modelName = document.getElementById('llmModelName').value;
+
+      const config = {};
+
+      // Only send non-empty keys
+      if (anthropicKey && anthropicKey !== '••••••••') {
+        config.anthropic_api_key = anthropicKey;
+      }
+
+      if (openaiKey && openaiKey !== '••••••••') {
+        config.openai_api_key = openaiKey;
+      }
+
+      // Send provider if at least one key is provided
+      if (config.anthropic_api_key || config.openai_api_key) {
+        config.active_model = provider;
+        if (baseUrl) config.api_base_url = baseUrl;
+        if (modelName) config.llm_model_name = modelName;
+      }
+
+      // Validate: at least one key must be provided
+      if (!config.anthropic_api_key && !config.openai_api_key) {
+        showStatus(status, 'Please provide at least one API key', 'error');
+        return;
+      }
+
+      try {
+        const response = await fetch('/api/admin/config', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`
+          },
+          body: JSON.stringify(config)
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+          showStatus(status, 'Configuration saved successfully', 'success');
+        } else {
+          showStatus(status, data.error || 'Save failed', 'error');
+        }
+      } catch (error) {
+        showStatus(status, 'Connection error', 'error');
+      }
+    });
+
+    // Save Prompts
+    document.getElementById('promptForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const status = document.getElementById('promptStatus');
+
+      const prompts = {
+        active_template: document.getElementById('systemPrompt').value
+      };
+
+      try {
+        const response = await fetch('/api/admin/config', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`
+          },
+          body: JSON.stringify(prompts)
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+          showStatus(status, 'Prompts saved successfully', 'success');
+        } else {
+          showStatus(status, data.error || 'Save failed', 'error');
+        }
+      } catch (error) {
+        showStatus(status, 'Connection error', 'error');
+      }
+    });
+
+  </script>
+</body>
+</html>

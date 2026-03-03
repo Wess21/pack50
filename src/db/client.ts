@@ -18,6 +18,9 @@ export const db = new Pool({
   connectionTimeoutMillis: 2000,
 });
 
+// Export pool as alias for backwards compatibility
+export const pool = db;
+
 // Handle connection errors
 db.on('error', (err) => {
   console.error('Unexpected database error:', err);

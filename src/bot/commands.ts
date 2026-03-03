@@ -2,9 +2,11 @@ import type { Bot } from 'grammy';
 import type { MyContext } from '../types/context.js';
 import { logger } from '../utils/logger.js';
 
+import { db } from '../db/client.js';
+
 /**
  * /start command handler
- * Starts lead collection conversation flow
+ * Starts the conversation with a greeting message
  */
 async function startCommand(ctx: MyContext): Promise<void> {
   logger.info('Start command received', {
@@ -19,8 +21,28 @@ async function startCommand(ctx: MyContext): Promise<void> {
   ctx.session.messageHistory = [];
   ctx.session.lastActivityAt = new Date();
 
-  // Enter lead collection conversation flow
-  await ctx.conversation.enter('leadCollectionFlow');
+  // Force exit any active grammar conversation
+  await ctx.conversation.exit();
+
+  // Fetch greeting from config or use default
+  let greetingMsg = 'Привет! Я ИИ-ассистент, готов помочь с вашими документами.';
+  try {
+    const configResult = await db.query('SELECT greeting_message FROM bot_config WHERE id = 1');
+    if (configResult.rows.length > 0 && configResult.rows[0].greeting_message) {
+      greetingMsg = configResult.rows[0].greeting_message;
+    }
+  } catch (err) {
+    logger.warn('Failed to fetch greeting_message from bot_config, using default', { error: err });
+  }
+
+  await ctx.reply(greetingMsg);
+
+  // Add greeting to message history
+  ctx.session.messageHistory.push({
+    role: 'assistant',
+    content: greetingMsg,
+    timestamp: new Date()
+  });
 }
 
 /**
@@ -64,6 +86,7 @@ async function cancelCommand(ctx: MyContext): Promise<void> {
     ctx.session.leadData = {};
     ctx.session.messageHistory = [];
     ctx.session.lastActivityAt = new Date();
+    await ctx.conversation.exit();
 
     await ctx.reply('Conversation cancelled. Use /start to begin again.');
   } else {

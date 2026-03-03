@@ -20,14 +20,14 @@ bot.use(loggerMiddleware);
 // 2. Session - attach session to context (MUST be before conversations)
 bot.use(sessionMiddleware);
 
-// 3. Conversations plugin - enable multi-turn dialogues
+// 3. Commands - register command handlers (MUST be before conversations to allow /start and /cancel to kill active sessions)
+registerCommands(bot);
+
+// 4. Conversations plugin - enable multi-turn dialogues
 bot.use(conversations());
 
-// 4. Register lead collection conversation
+// 5. Register lead collection conversation
 bot.use(createConversation(leadCollectionFlow));
-
-// 5. Commands - register command handlers
-registerCommands(bot);
 
 // 6. Message handler - RAG retrieval for non-conversation messages
 bot.on('message:text', handleMessage);

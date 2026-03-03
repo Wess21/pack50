@@ -56,12 +56,12 @@ Current date: {date}`
 export type BotPersona = keyof typeof SYSTEM_PROMPTS;
 
 /**
- * Build system prompt for a specific persona with current date injection
- * @param persona - Bot persona to use (consultant, support, orderTaker)
+ * Build system prompt for a specific persona or custom template with current date injection
+ * @param templateStr - Bot persona key (consultant, support, orderTaker) or custom prompt text
  * @returns System prompt with date placeholder replaced
  */
-export function buildSystemPrompt(persona: BotPersona): string {
-  const template = SYSTEM_PROMPTS[persona];
+export function buildSystemPrompt(templateStr: string): string {
+  const template = SYSTEM_PROMPTS[templateStr as BotPersona] || templateStr;
   const currentDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
 
   return template.replace('{date}', currentDate);

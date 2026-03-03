@@ -4,7 +4,7 @@ import { logger } from '../../utils/logger.js';
 import { createLLMProvider } from '../../services/llm/provider-factory.js';
 import { ContextManager } from '../../services/context-manager.js';
 import { WebhookService } from '../../services/webhook.js';
-import { buildSystemPrompt, BotPersona } from '../../prompts/system-prompts.js';
+import { buildSystemPrompt } from '../../prompts/system-prompts.js';
 import { buildPrompt } from '../../prompts/prompt-builder.js';
 import { env } from '../../config/env.js';
 import { db } from '../../db/client.js';
@@ -27,6 +27,15 @@ export async function handleMessage(ctx: MyContext) {
   // Skip if user is in active conversation flow
   if (ctx.session.conversationState !== 'idle') {
     return;  // Let conversation handler process
+  }
+
+  // Extract lead data silently in background
+  try {
+    const { extractDataFromMessage } = await import('../../api/services/data-extraction.js');
+    const extracted = await extractDataFromMessage(messageText, ctx.session.leadData);
+    ctx.session.leadData = { ...ctx.session.leadData, ...extracted };
+  } catch (err) {
+    logger.warn('Background lead extraction failed', { error: err });
   }
 
   try {
@@ -87,11 +96,11 @@ export async function handleMessage(ctx: MyContext) {
     let response: string;
     try {
       // Determine active persona from database
-      let activePersona: BotPersona = 'consultant';
+      let activeTemplate: string = 'consultant';
       try {
         const configResult = await db.query('SELECT active_template FROM bot_config WHERE id = 1');
         if (configResult.rows.length > 0 && configResult.rows[0].active_template) {
-          activePersona = configResult.rows[0].active_template as BotPersona;
+          activeTemplate = configResult.rows[0].active_template;
         }
       } catch (err) {
         logger.warn('Failed to fetch active_template from bot_config, defaulting to consultant', { error: err });
@@ -102,7 +111,7 @@ export async function handleMessage(ctx: MyContext) {
 
       const llmResponse = await llmProvider.generateResponse({
         messages,
-        systemPrompt: buildSystemPrompt(activePersona),
+        systemPrompt: buildSystemPrompt(activeTemplate),
         maxTokens: budget.maxOutput
       });
 

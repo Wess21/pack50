@@ -71,7 +71,18 @@
       "Bash(docker rm:*)",
       "Bash(docker logs:*)",
       "Bash(PGPASSWORD=dev_password psql:*)",
-      "Bash(npm uninstall:*)"
+      "Bash(npm uninstall:*)",
+      "Bash(ssh:*)",
+      "Bash(scp:*)",
+      "Bash(git push:*)",
+      "Bash(docker pull:*)",
+      "Bash(docker build:*)",
+      "Bash(python3:*)",
+      "Bash(ssh -o StrictHostKeyChecking=no root@212.116.115.187 \"echo ''=== VDS Connection Successful ==='' && uname -a && docker --version 2>/dev/null || echo ''Docker not installed''\")",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhZG1pbklkIjoxLCJpYXQiOjE3NzI1NDg0NDEsImV4cCI6MTc3MzE1MzI0MX0.Etf6JUknB68dgqKVr6Nblen8CRdwO2A6ZD8geeUqROA\")",
+      "Bash(echo \"=== Testing GET /api/documents ===\" curl -s http://localhost:33000/api/documents -H \"Authorization: Bearer $TOKEN\")",
+      "Bash(echo -e \"\\n\\n=== Testing GET /api/documents/stats ===\" curl -s http://localhost:33000/api/documents/stats -H \"Authorization: Bearer $TOKEN\")",
+      "Bash(echo -e \"\\n\\n=== Testing PUT /api/admin/change-password (with wrong current password) ===\" curl -s -X PUT http://localhost:33000/api/admin/change-password -H \"Authorization: Bearer $TOKEN\" -H \"Content-Type: application/json\" -d '{\"\"\"\"currentPassword\"\"\"\":\"\"\"\"wrong\"\"\"\",\"\"\"\"newPassword\"\"\"\":\"\"\"\"newpassword123\"\"\"\"}')"
     ]
   }
 }
