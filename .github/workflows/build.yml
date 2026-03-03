@@ -29,3 +29,13 @@ jobs:
       
     - name: Build project
       run: npm run build
+      
+    - name: Upload production-ready build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: pack50-build
+        path: |
+          dist/
+          package.json
+          package-lock.json
+          .env.example
