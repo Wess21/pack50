@@ -69,6 +69,9 @@ COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package.json ./
 
+# Copy static files (admin panel)
+COPY --from=builder /app/public ./public
+
 # Create non-root user and fix permissions
 RUN groupadd -g 1001 nodejs && \
     useradd -r -u 1001 -g nodejs nodejs && \
