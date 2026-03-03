@@ -36,7 +36,7 @@ export async function searchDocuments(
 ): Promise<SearchResult[]> {
   const {
     k = 5,
-    minSimilarity = 0.3,
+    minSimilarity = 0.1,  // Lowered from 0.3 for better recall
     filters = {}
   } = options;
 
@@ -44,56 +44,69 @@ export async function searchDocuments(
 
   // 1. Embed query
   const queryEmbedding = await embedText(query);
+  logger.debug('Query embedding created', {
+    embeddingLength: queryEmbedding.length,
+    firstValues: queryEmbedding.slice(0, 5)
+  });
 
   // 2. Build SQL with metadata filters
-  let sql = `
-    SELECT
-      content,
-      metadata,
-      1 - (embedding <=> $1::vector) as similarity
-    FROM document_chunks
-    WHERE 1=1
-  `;
+  let sql = `SELECT content, metadata, 1 - (embedding <=> $1::vector) as similarity FROM document_chunks`;
+  let hasWhere = false;
 
+  // Use JSON.stringify to match format used during document insertion
   const params: any[] = [JSON.stringify(queryEmbedding)];
   let paramIndex = 2;
 
   // Add metadata filters
   if (filters.docType) {
-    sql += ` AND metadata->>'doc_type' = $${paramIndex}`;
+    sql += hasWhere ? ` AND metadata->>'doc_type' = $${paramIndex}` : ` WHERE metadata->>'doc_type' = $${paramIndex}`;
     params.push(filters.docType);
     paramIndex++;
+    hasWhere = true;
   }
 
   if (filters.source) {
-    sql += ` AND metadata->>'source' = $${paramIndex}`;
+    sql += hasWhere ? ` AND metadata->>'source' = $${paramIndex}` : ` WHERE metadata->>'source' = $${paramIndex}`;
     params.push(filters.source);
     paramIndex++;
+    hasWhere = true;
   }
 
   if (filters.dateFrom) {
-    sql += ` AND metadata->>'uploaded_at' >= $${paramIndex}`;
+    sql += hasWhere ? ` AND metadata->>'uploaded_at' >= $${paramIndex}` : ` WHERE metadata->>'uploaded_at' >= $${paramIndex}`;
     params.push(filters.dateFrom);
     paramIndex++;
+    hasWhere = true;
   }
 
   if (filters.dateTo) {
-    sql += ` AND metadata->>'uploaded_at' <= $${paramIndex}`;
+    sql += hasWhere ? ` AND metadata->>'uploaded_at' <= $${paramIndex}` : ` WHERE metadata->>'uploaded_at' <= $${paramIndex}`;
     params.push(filters.dateTo);
     paramIndex++;
+    hasWhere = true;
   }
 
   // Add similarity threshold and ordering
-  sql += `
-    AND (1 - (embedding <=> $1::vector)) >= $${paramIndex}
-    ORDER BY embedding <=> $1::vector
-    LIMIT $${paramIndex + 1}
-  `;
-  params.push(minSimilarity);
-  params.push(k);
+  // NOTE: ORDER BY with distance operator seems to have issues
+  // Use similarity column for ordering instead
+  sql += ` ORDER BY similarity DESC LIMIT ${k}`;
 
   // 3. Execute search
   const startTime = Date.now();
+  logger.debug('Executing SQL', {
+    sql: sql.substring(0, 200),
+    paramsCount: params.length,
+    param1Type: typeof params[0],
+    param1Length: typeof params[0] === 'string' ? params[0].length : 'N/A',
+    paramsList: params.map((p, i) => i === 0 ? `param${i}: [embedding]` : `param${i}: ${p}`)
+  });
+
+  // Direct test query to verify params work
+  const testResult = await db.query(
+    `SELECT COUNT(*) as total FROM document_chunks`
+  );
+  logger.debug('Total chunks in DB:', testResult.rows[0]);
+
   const result = await db.query(sql, params);
   const duration = Date.now() - startTime;
 
@@ -102,6 +115,13 @@ export async function searchDocuments(
     resultsFound: result.rows.length,
     durationMs: duration
   });
+
+  if (result.rows.length > 0) {
+    logger.debug('Top result', {
+      similarity: result.rows[0].similarity,
+      source: result.rows[0].metadata?.source
+    });
+  }
 
   // 4. Format results with citations
   const searchResults: SearchResult[] = result.rows.map(row => {
@@ -176,13 +196,7 @@ export function extractContext(results: SearchResult[]): string {
     return '';
   }
 
-  const contextChunks = results.map((result, index) => {
-    const sourceLabel = `[Источник ${index + 1}: ${result.citation.source}${
-      result.citation.page ? `, стр. ${result.citation.page}` : ''
-    }]`;
-
-    return `${sourceLabel}\n${result.content}`;
-  });
+  const contextChunks = results.map((result) => result.content);
 
   return contextChunks.join('\n\n---\n\n');
 }

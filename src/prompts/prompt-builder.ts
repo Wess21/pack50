@@ -20,7 +20,7 @@ export function buildPrompt(
     ...conversationHistory,
     {
       role: 'user',
-      content: `Context from knowledge base:\n\n${ragContext}\n\n---\n\nUser question: ${userQuery}`
+      content: `Information:\n\n${ragContext}\n\n---\n\nUser question: ${userQuery}`
     }
   ];
 

@@ -2,7 +2,7 @@ import express, { Request, Response } from 'express';
 import multer from 'multer';
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
-import { processPDF, processDOCX, processURL } from '../../services/document-processing.js';
+import { processPDF, processDOCX, processURL, processTXT } from '../../services/document-processing.js';
 import { logger } from '../../utils/logger.js';
 
 const router = express.Router();
@@ -14,11 +14,15 @@ const upload = multer({
     fileSize: 10 * 1024 * 1024  // 10MB limit
   },
   fileFilter: (_req, file, cb) => {
-    const allowedTypes = ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+    const allowedTypes = [
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'text/plain'
+    ];
     if (allowedTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error('Invalid file type. Only PDF and DOCX allowed.'));
+      cb(new Error('Invalid file type. Only PDF, DOCX and TXT allowed.'));
     }
   }
 });
@@ -58,6 +62,10 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
       });
     } else if (fileType === '.docx') {
       processDOCX(filePath, jobId, filename).then(result => {
+        jobs.set(jobId, result);
+      });
+    } else if (fileType === '.txt') {
+      processTXT(filePath, jobId, filename).then(result => {
         jobs.set(jobId, result);
       });
     } else {

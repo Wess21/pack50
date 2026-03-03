@@ -10,14 +10,15 @@ export class AnthropicProvider implements LLMProvider {
   private client: Anthropic;
   private modelName: string;
 
-  constructor(apiKey: string, modelName: string = 'claude-sonnet-4-5-20250929') {
+  constructor(apiKey: string, options?: { baseURL?: string; model?: string }) {
     this.client = new Anthropic({
       apiKey,
+      baseURL: options?.baseURL,
       maxRetries: 2, // Auto-retry 408, 429, 5xx errors
     });
-    this.modelName = modelName;
+    this.modelName = options?.model || 'claude-sonnet-4-5-20250929';
 
-    logger.info('AnthropicProvider initialized', { model: this.modelName });
+    logger.info('AnthropicProvider initialized', { model: this.modelName, hasBaseURL: !!options?.baseURL });
   }
 
   async generateResponse(request: LLMGenerateRequest): Promise<LLMGenerateResponse> {

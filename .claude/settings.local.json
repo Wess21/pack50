@@ -64,7 +64,14 @@
       "Bash(npm create:*)",
       "Bash(npx tailwindcss init -p)",
       "Bash(./node_modules/.bin/tailwindcss:*)",
-      "Bash(chmod:*)"
+      "Bash(chmod:*)",
+      "Bash(docker run:*)",
+      "Bash(curl:*)",
+      "Bash(psql:*)",
+      "Bash(docker rm:*)",
+      "Bash(docker logs:*)",
+      "Bash(PGPASSWORD=dev_password psql:*)",
+      "Bash(npm uninstall:*)"
     ]
   }
 }

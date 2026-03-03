@@ -10,14 +10,18 @@ export class OpenAIProvider implements LLMProvider {
   private client: OpenAI;
   private modelName: string;
 
-  constructor(apiKey: string, modelName: string = 'gpt-4o') {
+  constructor(apiKey: string, options?: { baseURL?: string; model?: string }) {
     this.client = new OpenAI({
       apiKey,
+      baseURL: options?.baseURL,
       maxRetries: 2,
     });
-    this.modelName = modelName;
+    this.modelName = options?.model || 'gpt-4o';
 
-    logger.info('OpenAIProvider initialized', { model: this.modelName });
+    logger.info('OpenAIProvider initialized', {
+      model: this.modelName,
+      baseURL: options?.baseURL || 'default'
+    });
   }
 
   async generateResponse(request: LLMGenerateRequest): Promise<LLMGenerateResponse> {

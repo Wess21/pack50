@@ -1,6 +1,7 @@
 import { loadPDF } from '../loaders/pdf-loader.js';
 import { loadDOCX } from '../loaders/docx-loader.js';
 import { loadURL } from '../loaders/web-loader.js';
+import { loadTXT } from '../loaders/txt-loader.js';
 import { RecursiveCharacterTextSplitter } from './text-splitter.js';
 import { embedBatch } from './embedding.js';
 import { db } from '../db/client.js';
@@ -203,6 +204,63 @@ export async function processURL(
     };
   } catch (error: any) {
     logger.error('URL processing failed', { jobId, error: error.message });
+    return {
+      jobId,
+      status: 'failed',
+      error: error.message
+    };
+  }
+}
+
+/**
+ * Process plain text file
+ */
+export async function processTXT(
+  filePath: string,
+  jobId: string,
+  filename: string
+): Promise<ProcessingJob> {
+  try {
+    logger.info('Processing TXT', { jobId, filename });
+
+    const doc = await loadTXT(filePath, filename);
+    const chunks = textSplitter.splitText(doc.text);
+    const texts = chunks.map(c => c.text);
+    const embeddings = await embedBatch(texts);
+
+    const timestamp = new Date().toISOString();
+
+    for (let i = 0; i < chunks.length; i++) {
+      await db.query(
+        `INSERT INTO document_chunks (content, embedding, metadata)
+         VALUES ($1, $2, $3)`,
+        [
+          chunks[i].text,
+          JSON.stringify(embeddings[i]),
+          JSON.stringify({
+            source: filename,
+            page: null,
+            doc_type: 'txt',
+            uploaded_at: timestamp,
+            chunk_index: i,
+            job_id: jobId
+          })
+        ]
+      );
+    }
+
+    logger.info('TXT processing complete', {
+      jobId,
+      chunksCreated: chunks.length
+    });
+
+    return {
+      jobId,
+      status: 'completed',
+      chunksCreated: chunks.length
+    };
+  } catch (error: any) {
+    logger.error('TXT processing failed', { jobId, error: error.message });
     return {
       jobId,
       status: 'failed',

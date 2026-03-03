@@ -1,12 +1,13 @@
 import { MyContext } from '../../types/context.js';
-import { searchDocuments, formatCitations, extractContext } from '../../services/retrieval.js';
+import { searchDocuments, extractContext } from '../../services/retrieval.js';
 import { logger } from '../../utils/logger.js';
 import { createLLMProvider } from '../../services/llm/provider-factory.js';
 import { ContextManager } from '../../services/context-manager.js';
 import { WebhookService } from '../../services/webhook.js';
-import { buildSystemPrompt } from '../../prompts/system-prompts.js';
+import { buildSystemPrompt, BotPersona } from '../../prompts/system-prompts.js';
 import { buildPrompt } from '../../prompts/prompt-builder.js';
 import { env } from '../../config/env.js';
+import { db } from '../../db/client.js';
 
 // Initialize services
 const contextManager = new ContextManager();
@@ -40,7 +41,7 @@ export async function handleMessage(ctx: MyContext) {
     // Search relevant documents
     const searchResults = await searchDocuments(messageText, {
       k: 5,
-      minSimilarity: 0.3
+      minSimilarity: 0.1  // Lowered for better recall
     });
 
     // Handle no results case
@@ -54,7 +55,6 @@ export async function handleMessage(ctx: MyContext) {
 
     // Phase 3: LLM integration with RAG context
     const ragContext = extractContext(searchResults);
-    const citations = formatCitations(searchResults);
 
     // Load conversation history from session
     const sessionHistory = ctx.session.messageHistory || [];
@@ -86,21 +86,27 @@ export async function handleMessage(ctx: MyContext) {
     // Generate AI response with dynamic provider
     let response: string;
     try {
+      // Determine active persona from database
+      let activePersona: BotPersona = 'consultant';
+      try {
+        const configResult = await db.query('SELECT active_template FROM bot_config WHERE id = 1');
+        if (configResult.rows.length > 0 && configResult.rows[0].active_template) {
+          activePersona = configResult.rows[0].active_template as BotPersona;
+        }
+      } catch (err) {
+        logger.warn('Failed to fetch active_template from bot_config, defaulting to consultant', { error: err });
+      }
+
       // Create provider based on database configuration
       const llmProvider = await createLLMProvider();
 
       const llmResponse = await llmProvider.generateResponse({
         messages,
-        systemPrompt: buildSystemPrompt('consultant'),
+        systemPrompt: buildSystemPrompt(activePersona),
         maxTokens: budget.maxOutput
       });
 
       response = llmResponse.content;
-
-      // Optionally append citations for transparency
-      if (citations) {
-        response += `\n\n${citations}`;
-      }
     } catch (error) {
       logger.error('LLM generation failed, falling back to RAG only', {
         userId: ctx.from?.id,
@@ -108,7 +114,7 @@ export async function handleMessage(ctx: MyContext) {
       });
 
       // Fallback to Phase 2 behavior (RAG without LLM)
-      response = `Найденная информация:\n\n${ragContext}\n\n---\n\n${citations}`;
+      response = `Найденная информация:\n\n${ragContext}`;
     }
 
     // Send response

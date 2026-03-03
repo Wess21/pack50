@@ -59,7 +59,7 @@ router.post('/login', async (req, res) => {
 router.get('/config', requireAdmin, async (_req, res) => {
   try {
     const result = await db.query(
-      'SELECT active_model, active_template, webhook_url FROM bot_config WHERE id = 1'
+      'SELECT active_model, active_template, webhook_url, api_base_url, llm_model_name FROM bot_config WHERE id = 1'
     );
 
     res.json(result.rows[0] || {});
@@ -81,6 +81,8 @@ router.put('/config', requireAdmin, async (req: AdminRequest, res) => {
       webhook_url,
       anthropic_api_key,
       openai_api_key,
+      api_base_url,
+      llm_model_name,
     } = req.body;
 
     const updates: string[] = [];
@@ -102,6 +104,16 @@ router.put('/config', requireAdmin, async (req: AdminRequest, res) => {
       values.push(webhook_url);
     }
 
+    if (api_base_url !== undefined) {
+      updates.push(`api_base_url = $${paramIndex++}`);
+      values.push(api_base_url);
+    }
+
+    if (llm_model_name) {
+      updates.push(`llm_model_name = $${paramIndex++}`);
+      values.push(llm_model_name);
+    }
+
     // Encrypt API keys if provided
     if (anthropic_api_key) {
       const { encrypted, iv } = encryptApiKey(anthropic_api_key);
@@ -113,12 +125,12 @@ router.put('/config', requireAdmin, async (req: AdminRequest, res) => {
     if (openai_api_key) {
       const { encrypted, iv } = encryptApiKey(openai_api_key);
       updates.push(`openai_api_key_encrypted = $${paramIndex++}`);
-      // Reuse same IV for simplicity (same encryption session)
+      values.push(encrypted);
+      // Add IV if not already added by anthropic key
       if (!anthropic_api_key) {
         updates.push(`encryption_iv = $${paramIndex++}`);
         values.push(iv);
       }
-      values[values.length - 2] = encrypted; // Update encrypted value position
     }
 
     if (updates.length === 0) {
@@ -151,7 +163,7 @@ router.put('/config', requireAdmin, async (req: AdminRequest, res) => {
  */
 router.post('/test-model', requireAdmin, async (req, res) => {
   try {
-    const { provider, api_key, model_name } = req.body;
+    const { provider, api_key, model_name, api_base_url } = req.body;
 
     if (!provider || !api_key) {
       res.status(400).json({ error: 'provider and api_key required' });
@@ -161,12 +173,25 @@ router.post('/test-model', requireAdmin, async (req, res) => {
     let testProvider: LLMProvider;
 
     if (provider === 'anthropic') {
-      testProvider = new AnthropicProvider(
-        api_key,
-        model_name || 'claude-sonnet-4-5-20250929'
-      );
+      if (api_base_url) {
+        testProvider = new OpenAIProvider(api_key, {
+          baseURL: api_base_url,
+          model: model_name || 'anthropic/claude-3-5-sonnet-20241022'
+        });
+      } else {
+        testProvider = new AnthropicProvider(
+          api_key,
+          {
+            baseURL: undefined,
+            model: model_name || 'claude-sonnet-4-5-20250929'
+          }
+        );
+      }
     } else if (provider === 'openai') {
-      testProvider = new OpenAIProvider(api_key, model_name || 'gpt-4o');
+      testProvider = new OpenAIProvider(api_key, {
+        baseURL: api_base_url,
+        model: model_name || 'gpt-4o'
+      });
     } else {
       res.status(400).json({ error: 'Invalid provider' });
       return;

@@ -1,8 +1,5 @@
-import * as pdfParse from 'pdf-parse';
-import { readFile } from 'fs/promises';
-
-// pdf-parse exports as CommonJS module
-const pdf = (pdfParse as any).default || pdfParse;
+import { readFile } from "fs/promises";
+import { PDFParse } from "pdf-parse";
 
 export interface PDFPage {
   pageNumber: number;
@@ -25,38 +22,40 @@ export interface PDFDocument {
  */
 export async function loadPDF(filePath: string): Promise<PDFDocument> {
   const buffer = await readFile(filePath);
-  const data = await pdf(buffer);
 
-  // pdf-parse provides full text, we need to extract by page
-  // Use render_page callback to capture per-page text
-  const pages: PDFPage[] = [];
+  // pdf-parse 2.x uses class-based API
+  const parser = new PDFParse({ data: buffer });
+  const textResult = await parser.getText();
+  
+  let infoResult;
+  try {
+    infoResult = await parser.getInfo();
+  } catch (e) {
+    infoResult = { info: {}, total: textResult.total || 1 };
+  }
 
-  await pdf(buffer, {
-    pagerender: async (pageData: any) => {
-      const textContent = await pageData.getTextContent();
-      const text = textContent.items
-        .map((item: any) => item.str)
-        .join(' ')
-        .trim();
+  // Extract text from all pages
+  const pages: PDFPage[] = (textResult.pages || []).map(page => ({
+    pageNumber: page.num,
+    text: page.text || ""
+  }));
 
-      pages.push({
-        pageNumber: pageData.pageNumber,
-        text
-      });
+  // Fallback if pages aren't cleanly extracted
+  if (pages.length === 0 && textResult.text) {
+    pages.push({
+      pageNumber: 1,
+      text: textResult.text,
+    });
+  }
 
-      return '';  // Required return for pagerender
-    }
-  });
+  const totalPages = textResult.total || 1;
 
   return {
-    pages: pages.length > 0 ? pages : [{
-      pageNumber: 1,
-      text: data.text  // Fallback to full text if page parsing fails
-    }],
+    pages,
     metadata: {
-      title: data.info?.Title,
-      author: data.info?.Author,
-      totalPages: data.numpages
-    }
+      title: infoResult.info?.Title,
+      author: infoResult.info?.Author,
+      totalPages: totalPages,
+    },
   };
 }

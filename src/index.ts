@@ -6,9 +6,15 @@ import { logger } from './utils/logger.js';
 import { EmbeddingService } from './services/embedding.js';
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import documentsRouter from './api/routes/documents.js';
 import adminRouter from './api/routes/admin.js';
+import providersRouter from './api/routes/providers.js';
 import { seedAdminUser } from './db/seed-admin.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 /**
  * Main application entry point
@@ -46,6 +52,16 @@ async function main() {
       webhookApp.use(express.json());
       webhookApp.use('/api/documents', documentsRouter);
       webhookApp.use('/api/admin', adminRouter);
+      webhookApp.use('/api/providers', providersRouter);
+
+      // Serve static files
+      const publicPath = path.join(__dirname, '../public');
+      webhookApp.use(express.static(publicPath));
+
+      // Health check
+      webhookApp.get('/health', (_req, res) => {
+        res.json({ status: 'ok', timestamp: new Date().toISOString() });
+      });
 
       logger.info('=== Pack50 Bot Ready (Webhook Mode) ===');
     } else {
@@ -56,6 +72,16 @@ async function main() {
       app.use(express.json());
       app.use('/api/documents', documentsRouter);
       app.use('/api/admin', adminRouter);
+      app.use('/api/providers', providersRouter);
+
+      // Serve static files (admin panel)
+      const publicPath = path.join(__dirname, '../public');
+      app.use(express.static(publicPath));
+
+      // Health check
+      app.get('/health', (_req, res) => {
+        res.json({ status: 'ok', timestamp: new Date().toISOString() });
+      });
 
       const API_PORT = env.PORT || 3000;
       app.listen(API_PORT, () => {
