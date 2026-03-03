@@ -1,5 +1,8 @@
 version: '3.8'
 
+# Production docker-compose using pre-built image from GitHub Container Registry
+# This file is used on VDS servers for deployment
+
 services:
   postgres:
     image: pgvector/pgvector:pg16
@@ -9,8 +12,6 @@ services:
       POSTGRES_DB: pack50
       POSTGRES_USER: pack50
       POSTGRES_PASSWORD: ${DB_PASSWORD}
-    ports:
-      - "15432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
@@ -30,8 +31,6 @@ services:
     container_name: pack50_redis
     restart: unless-stopped
     command: redis-server --appendonly yes
-    ports:
-      - "16379:6379"
     volumes:
       - redis_data:/data
     networks:
@@ -47,7 +46,7 @@ services:
           memory: 128M
 
   bot:
-    build: .
+    image: ghcr.io/wess21/pack50:latest
     container_name: pack50_bot
     restart: unless-stopped
     depends_on:
@@ -59,12 +58,12 @@ services:
       BOT_TOKEN: ${BOT_TOKEN}
       DATABASE_URL: postgresql://pack50:${DB_PASSWORD}@postgres:5432/pack50
       REDIS_URL: redis://redis:6379
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       NODE_ENV: production
       PORT: 3000
-      WEBHOOK_URL: ${WEBHOOK_URL}
-      WEBHOOK_SECRET: ${WEBHOOK_SECRET}
+      WEBHOOK_URL: ${WEBHOOK_URL:-}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       JWT_SECRET: ${JWT_SECRET}
       DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD}

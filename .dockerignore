@@ -1,9 +1,24 @@
 node_modules
 .env
 .env.example
+.env.test
 .git
 .gitignore
-*.md
 dist
 .planning
 admin
+.admin_password
+*.log
+coverage
+.DS_Store
+
+# Documentation files (not needed in container)
+*.md
+!README.md
+
+# Test files
+test-deployment.sh
+docker-compose.test.yml
+
+# CI/CD files
+.github
