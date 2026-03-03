@@ -27,7 +27,7 @@ if [ -d "pack50-bot" ]; then
     git pull
 else
     echo "📦 Cloning repository..."
-    git clone https://github.com/your-org/pack50-bot.git
+    git clone https://github.com/Wess21/pack50.git pack50-bot
     cd pack50-bot
 fi
 
