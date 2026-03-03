@@ -37,11 +37,17 @@ FROM node:20-slim AS prod-deps
 
 WORKDIR /app
 
+# Install build tools for native modules (onnxruntime-node requires compilation)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends python3 make g++ && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
 # Copy package files
 COPY package.json package-lock.json ./
 
-# Install only production dependencies
-RUN npm ci --omit=dev --ignore-scripts
+# Install only production dependencies (allow scripts for native modules)
+RUN npm ci --omit=dev
 
 # ============================================
 # Stage 4: Production image
