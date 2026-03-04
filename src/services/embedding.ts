@@ -62,25 +62,26 @@ export async function embedBatch(texts: string[]): Promise<number[][]> {
   }
 
   const pipeline = await getEmbeddingPipeline();
-
-  // Process in batches to manage memory
-  const BATCH_SIZE = 32;
   const results: number[][] = [];
+  const YIELD_EVERY = 10;   // yield event loop every N embeddings
 
-  for (let i = 0; i < texts.length; i += BATCH_SIZE) {
-    const batch = texts.slice(i, i + BATCH_SIZE);
+  for (let i = 0; i < texts.length; i++) {
+    const output = await pipeline(texts[i], {
+      pooling: 'mean',
+      normalize: true
+    });
+    results.push(Array.from(output.data) as number[]);
 
-    for (const text of batch) {
-      const output = await pipeline(text, {
-        pooling: 'mean',
-        normalize: true
-      });
-      results.push(Array.from(output.data) as number[]);
+    // Yield to event loop periodically so HTTP requests can be served
+    // during long document processing (e.g. 789-chunk XLSX files)
+    if (i > 0 && i % YIELD_EVERY === 0) {
+      await new Promise<void>(resolve => setImmediate(resolve));
     }
   }
 
   return results;
 }
+
 
 /**
  * Preload embedding model during application startup

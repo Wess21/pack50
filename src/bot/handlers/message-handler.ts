@@ -8,6 +8,7 @@ import { buildSystemPrompt } from '../../prompts/system-prompts.js';
 import { buildPrompt } from '../../prompts/prompt-builder.js';
 import { env } from '../../config/env.js';
 import { db } from '../../db/client.js';
+import { processCollectedContact } from '../../api/services/contact-notification.js';
 
 // Initialize services
 const contextManager = new ContextManager();
@@ -47,18 +48,91 @@ export async function handleMessage(ctx: MyContext) {
     // Send typing indicator
     await ctx.replyWithChatAction('typing');
 
-    // Search relevant documents
-    const searchResults = await searchDocuments(messageText, {
-      k: 5,
-      minSimilarity: 0.1  // Lowered for better recall
+    // 1. Query Expansion: Extract all products and generate synonyms
+    let expandedQuery = messageText;
+    let productList: string[] = [];
+    try {
+      const llmProvider = await createLLMProvider();
+
+      const expansionPrompt = `
+You are an expert search query expander for a building materials and tools store in Russia.
+The user sent this message: "${messageText}"
+
+Your task is to extract ALL products they are looking for and provide professional synonyms or related terms that might be found in a formal price list or catalog.
+
+For example:
+- "шурик" -> "шуруповерт дрель аккумуляторная"
+- "спецзащита" -> "спецодежда СИЗ защита"
+- "болгарка" -> "УШМ шлифмашина углошлифовальная"
+- "перфик" -> "перфоратор ударная дрель"
+- "лом" -> "лом монтировка инструмент"
+
+If the message contains MULTIPLE products (e.g., "10 ломов, 5 шуриков, 3 перфоратора"), extract EACH product separately on a new line.
+
+Return ONLY the expanded keywords, one product per line. If no expansion is needed, return the original product names.
+`;
+
+      const expansionResponse = await llmProvider.generateResponse({
+        messages: [{ role: 'user', content: expansionPrompt }],
+        systemPrompt: 'You are a helpful search assistant.',
+        maxTokens: 150
+      });
+
+      const expansions = expansionResponse.content.trim();
+      if (expansions && expansions.length > 0 && !expansions.toLowerCase().includes('nothing')) {
+        // Split by lines to get individual products
+        productList = expansions.split('\n').map(p => p.trim()).filter(p => p.length > 0);
+        expandedQuery = `${messageText} ${expansions.replace(/\n/g, ' ')}`;
+        logger.info('Expanded search query', {
+          original: messageText,
+          expanded: expandedQuery,
+          productCount: productList.length
+        });
+      }
+    } catch (expErr) {
+      logger.warn('Query expansion failed, using original', { error: expErr });
+    }
+
+    // 2. Search relevant documents using the expanded query
+    // Increase k based on number of products (more products = more chunks needed)
+    const dynamicK = Math.max(10, productList.length * 5);
+    const searchResults = await searchDocuments(expandedQuery, {
+      k: dynamicK,
+      minSimilarity: 0.05  // Very low threshold - let diversity reranking handle quality
+    });
+
+    // Log search results for debugging
+    logger.info('RAG search completed', {
+      userId: ctx.from?.id,
+      query: messageText.substring(0, 100),
+      expandedQuery: expandedQuery.substring(0, 200),
+      productsDetected: productList.length,
+      chunksFound: searchResults.length,
+      topSources: searchResults.slice(0, 3).map(r => ({
+        source: r.citation.source,
+        similarity: r.similarity.toFixed(3),
+        preview: r.content.substring(0, 80)
+      }))
     });
 
     // Handle no results case
     if (searchResults.length === 0) {
       await ctx.reply(
-        'К сожалению, я не нашел информации по вашему вопросу в загруженных документах.\n\n' +
-        'Попробуйте переформулировать вопрос или обратитесь к администратору для загрузки дополнительных материалов.'
+        'К сожалению, я не нашел информации по вашему вопросу.\n\n' +
+        'Пожалуйста, оставьте свой номер телефона или email, и наш менеджер свяжется с вами для помощи!'
       );
+
+      // We still want to send the notification if a lead was collected!
+      const leadData = ctx.session.leadData;
+      if (leadData.email || leadData.phone) {
+        try {
+          const userId = ctx.from?.id || 0;
+          await processCollectedContact(userId, leadData, ctx, ctx.session.messageHistory);
+          ctx.session.leadCollected = true;
+        } catch (e) {
+          logger.warn('Failed to send lead from empty search', { error: e });
+        }
+      }
       return;
     }
 
@@ -106,16 +180,66 @@ export async function handleMessage(ctx: MyContext) {
         logger.warn('Failed to fetch active_template from bot_config, defaulting to consultant', { error: err });
       }
 
-      // Create provider based on database configuration
+      // Provider already created above for expansion, or recreate if needed
       const llmProvider = await createLLMProvider();
 
       const llmResponse = await llmProvider.generateResponse({
         messages,
-        systemPrompt: buildSystemPrompt(activeTemplate),
+        systemPrompt: buildSystemPrompt(activeTemplate, (ctx.session as any).hasRequestedContacts),
         maxTokens: budget.maxOutput
       });
 
       response = llmResponse.content;
+
+      // --- AUTONOMOUS ORDER COLLECTION (CHECKOUT TRIGGER) ---
+      if (response.includes('[TRIGGER_CHECKOUT]')) {
+        logger.info('Checkout trigger detected', { userId: ctx.from?.id });
+
+        // Remove the trigger mark before showing to user
+        response = response.replace(/\[TRIGGER_CHECKOUT\]/g, '').trim();
+
+        // Ask LLM to summarize the cart from the order interaction
+        try {
+          const cartPrompt = `
+You are an extracting assistant.
+Given the following conversation between the user and our store assistant, extract the final list of products the user wants to buy.
+Include brand, model, quantity, and price if discussed.
+Format as a clean, simple list without introductory text.
+
+Conversation Context:
+${JSON.stringify(messages.slice(-6))}`;
+
+          const cartResponse = await llmProvider.generateResponse({
+            messages: [{ role: 'user', content: cartPrompt }],
+            systemPrompt: 'You extract precise item lists from sales conversations.',
+            maxTokens: 200
+          });
+
+          (ctx.session as any).cart = cartResponse.content.trim();
+          logger.info('Cart generated successfully', { cart: (ctx.session as any).cart });
+        } catch (cartErr) {
+          logger.warn('Failed to generate cart summary, using fallback', { error: cartErr });
+          (ctx.session as any).cart = 'Товары по диалогу (требует уточнения менеджером)';
+        }
+
+        // Reply with the confirmation text (without the trigger)
+        if (response.length > 0) {
+          await ctx.reply(response.substring(0, 4000));
+        }
+
+        // Enter the lead collection flow to finalize the order
+        await ctx.conversation.enter('leadCollectionFlow');
+        return; // Break out representing end of message-handling for this turn
+      }
+      // --- END AUTONOMOUS ORDER COLLECTION ---
+
+      // Track if the bot asked for contacts in this message
+      const responseLower = response.toLowerCase();
+      if (!(ctx.session as any).hasRequestedContacts &&
+        (responseLower.includes('телефон') || responseLower.includes('email') || responseLower.includes('связаться с вами') || responseLower.includes('наш менеджер'))) {
+        (ctx.session as any).hasRequestedContacts = true;
+        logger.info('Contact request detected, setting flag to true', { userId: ctx.from?.id });
+      }
     } catch (error) {
       logger.error('LLM generation failed, falling back to RAG only', {
         userId: ctx.from?.id,
@@ -146,30 +270,39 @@ export async function handleMessage(ctx: MyContext) {
 
     ctx.session.messageHistory = updatedHistory;
 
-    // Check if lead data is complete and send webhook
+    // Only send notification if user provided actual contactable info (email or phone)
     const leadData = ctx.session.leadData;
-    if (leadData.name && leadData.email && leadData.phone) {
-      try {
-        await webhookService.send({
-          event_type: 'lead_collected',
-          timestamp: new Date().toISOString(),
-          webhook_id: crypto.randomUUID(),
-          user_id: String(ctx.from?.id || 0),
-          username: ctx.from?.username,
-          message: messageText,
-          collected_data: {
-            name: leadData.name,
-            email: leadData.email,
-            phone: leadData.phone,
-            additional_info: leadData.additional_info
-          }
-        });
-        logger.info('Webhook sent for completed lead', { userId: ctx.from?.id });
-      } catch (webhookError) {
-        logger.warn('Webhook delivery failed (non-critical)', {
-          userId: ctx.from?.id,
-          error: webhookError instanceof Error ? webhookError.message : String(webhookError)
-        });
+    if (!ctx.session.leadCollected && (leadData.email || leadData.phone)) {
+      {
+        try {
+          // Forward to admin via selected transport
+          const userId = ctx.from?.id || 0;
+          await processCollectedContact(userId, leadData, ctx, ctx.session.messageHistory);
+
+          await webhookService.send({
+            event_type: 'lead_collected',
+            timestamp: new Date().toISOString(),
+            webhook_id: crypto.randomUUID(),
+            user_id: String(userId),
+            username: ctx.from?.username,
+            message: messageText,
+            collected_data: {
+              name: leadData.name,
+              email: leadData.email,
+              phone: leadData.phone,
+              additional_info: leadData.additional_info
+            }
+          });
+          logger.info('Webhook and Notification sent for completed lead', { userId });
+
+          // Mark as collected to prevent spamming notifications on every subsequent message
+          ctx.session.leadCollected = true;
+        } catch (webhookError) {
+          logger.warn('Notification delivery failed (non-critical)', {
+            userId: ctx.from?.id,
+            error: webhookError instanceof Error ? webhookError.message : String(webhookError)
+          });
+        }
       }
     }
 

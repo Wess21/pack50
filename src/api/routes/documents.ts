@@ -2,10 +2,11 @@ import express, { Request, Response } from 'express';
 import multer from 'multer';
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
-import { processPDF, processDOCX, processURL, processTXT } from '../../services/document-processing.js';
+import { processPDF, processDOCX, processURL, processTXT, processXLSX } from '../../services/document-processing.js';
 import { logger } from '../../utils/logger.js';
 import { DocumentsRepository } from '../../db/repositories/documents-repository.js';
 import { requireAdmin } from '../../middleware/admin-auth.js';
+import { db } from '../../db/client.js';
 
 const router = express.Router();
 
@@ -19,6 +20,8 @@ const upload = multer({
     const allowedTypes = [
       'application/pdf',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',   // xlsx
+      'application/vnd.ms-excel',                                             // xls
       'text/plain'
     ];
     if (allowedTypes.includes(file.mimetype)) {
@@ -45,7 +48,8 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
 
     const jobId = uuidv4();
     const filePath = req.file.path;
-    const filename = req.file.originalname;
+    // multer encodes originalname as latin1 bytes; decode to UTF-8 to fix Cyrillic filenames
+    const filename = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
     const fileType = path.extname(filename).toLowerCase();
 
     logger.info('Document upload received', { jobId, filename, fileType });
@@ -57,30 +61,55 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
       createdAt: new Date()
     });
 
-    // Process in background (don't await)
-    if (fileType === '.pdf') {
-      processPDF(filePath, jobId, filename).then(result => {
-        jobs.set(jobId, result);
-      });
-    } else if (fileType === '.docx') {
-      processDOCX(filePath, jobId, filename).then(result => {
-        jobs.set(jobId, result);
-      });
-    } else if (fileType === '.txt') {
-      processTXT(filePath, jobId, filename).then(result => {
-        jobs.set(jobId, result);
-      });
-    } else {
+    // Immediately create a 'processing' row so the file appears in the UI right away
+    const fileExt = fileType.replace('.', '') as any;
+    try {
+      await db.query(
+        `INSERT INTO documents (source, source_type, title, status, upload_date)
+         VALUES ($1, $2, $3, 'processing', NOW())
+         ON CONFLICT (source) DO UPDATE SET status = 'processing', updated_at = NOW()`,
+        [filename, fileExt, filename]
+      );
+    } catch (dbErr: any) {
+      logger.warn('Could not create processing row in documents', { error: dbErr.message });
+    }
+
+    // Resolve unsupported types before sending the response
+    if (!['.pdf', '.docx', '.txt', '.xlsx', '.xls'].includes(fileType)) {
       res.status(400).json({ error: 'Unsupported file type' });
       return;
     }
 
-    // Return immediately with job ID
+    // Send 202 IMMEDIATELY — before any heavy processing starts
+    // This ensures the browser gets the response and the event loop stays free
     res.status(202).json({
       jobId,
       status: 'processing',
       message: 'Document processing started'
     });
+
+    // Defer heavy CPU/IO work to AFTER the response is flushed
+    setImmediate(() => {
+      let job: Promise<any>;
+
+      if (fileType === '.pdf') {
+        job = processPDF(filePath, jobId, filename);
+      } else if (fileType === '.docx') {
+        job = processDOCX(filePath, jobId, filename);
+      } else if (fileType === '.txt') {
+        job = processTXT(filePath, jobId, filename);
+      } else {
+        job = processXLSX(filePath, jobId, filename);
+      }
+
+      job.then(result => {
+        jobs.set(jobId, result);
+      }).catch(err => {
+        logger.error('Background processing error', { jobId, error: err.message });
+        jobs.set(jobId, { jobId, status: 'failed', error: err.message });
+      });
+    });
+
   } catch (error: any) {
     logger.error('Upload error', { error: error.message });
     res.status(500).json({ error: error.message });

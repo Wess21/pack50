@@ -82,7 +82,13 @@
       "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhZG1pbklkIjoxLCJpYXQiOjE3NzI1NDg0NDEsImV4cCI6MTc3MzE1MzI0MX0.Etf6JUknB68dgqKVr6Nblen8CRdwO2A6ZD8geeUqROA\")",
       "Bash(echo \"=== Testing GET /api/documents ===\" curl -s http://localhost:33000/api/documents -H \"Authorization: Bearer $TOKEN\")",
       "Bash(echo -e \"\\n\\n=== Testing GET /api/documents/stats ===\" curl -s http://localhost:33000/api/documents/stats -H \"Authorization: Bearer $TOKEN\")",
-      "Bash(echo -e \"\\n\\n=== Testing PUT /api/admin/change-password (with wrong current password) ===\" curl -s -X PUT http://localhost:33000/api/admin/change-password -H \"Authorization: Bearer $TOKEN\" -H \"Content-Type: application/json\" -d '{\"\"\"\"currentPassword\"\"\"\":\"\"\"\"wrong\"\"\"\",\"\"\"\"newPassword\"\"\"\":\"\"\"\"newpassword123\"\"\"\"}')"
+      "Bash(echo -e \"\\n\\n=== Testing PUT /api/admin/change-password (with wrong current password) ===\" curl -s -X PUT http://localhost:33000/api/admin/change-password -H \"Authorization: Bearer $TOKEN\" -H \"Content-Type: application/json\" -d '{\"\"\"\"currentPassword\"\"\"\":\"\"\"\"wrong\"\"\"\",\"\"\"\"newPassword\"\"\"\":\"\"\"\"newpassword123\"\"\"\"}')",
+      "Bash(docker compose logs:*)",
+      "Bash(if [ -f .env ])",
+      "Bash(then grep -E \"ANTHROPIC_API_KEY|OPENAI_API_KEY\" .env)",
+      "Bash(else echo \".env file not found\")",
+      "Bash(docker compose exec:*)",
+      "Bash(xargs kill:*)"
     ]
   }
 }

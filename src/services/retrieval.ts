@@ -37,7 +37,7 @@ export async function searchDocuments(
 ): Promise<SearchResult[]> {
   const {
     k = 5,
-    minSimilarity = 0.1,  // Lowered from 0.3 for better recall
+    minSimilarity = 0.05,  // Very low threshold — diversity logic handles quality
     filters = {}
   } = options;
 
@@ -45,107 +45,122 @@ export async function searchDocuments(
 
   // 1. Embed query
   const queryEmbedding = await embedText(query);
-  logger.debug('Query embedding created', {
-    embeddingLength: queryEmbedding.length,
-    firstValues: queryEmbedding.slice(0, 5)
-  });
 
-  // 2. Build SQL with metadata filters
-  let sql = `SELECT content, metadata, 1 - (embedding <=> $1::vector) as similarity FROM document_chunks`;
-  let hasWhere = false;
+  // 2. Build Hybrid SQL — fetch candidates from both Vector Search and FTS
+  const CANDIDATES = Math.max(k * 5, 50);
 
-  // Use JSON.stringify to match format used during document insertion
-  const params: any[] = [JSON.stringify(queryEmbedding)];
-  let paramIndex = 2;
+  let vectorWhere = `1 - (embedding <=> $1::vector) >= ${minSimilarity}`;
+  let ftsWhere = `to_tsvector('russian', content) @@ websearch_to_tsquery('russian', $2)`;
 
-  // Add metadata filters
+  // Convert natural language query into an "OR" search for Postgres FTS
+  // e.g. "какие есть шуруповерты" -> "какие OR есть OR шуруповерты"
+  const ftsQuery = query.trim().split(/\s+/).join(' OR ') || query;
+
+  const params: any[] = [JSON.stringify(queryEmbedding), ftsQuery];
+  let paramIndex = 3;
+
   if (filters.docType) {
-    sql += hasWhere ? ` AND metadata->>'doc_type' = $${paramIndex}` : ` WHERE metadata->>'doc_type' = $${paramIndex}`;
-    params.push(filters.docType);
-    paramIndex++;
-    hasWhere = true;
+    const clause = ` AND metadata->>'doc_type' = $${paramIndex}`;
+    vectorWhere += clause; ftsWhere += clause;
+    params.push(filters.docType); paramIndex++;
   }
-
   if (filters.source) {
-    sql += hasWhere ? ` AND metadata->>'source' = $${paramIndex}` : ` WHERE metadata->>'source' = $${paramIndex}`;
-    params.push(filters.source);
-    paramIndex++;
-    hasWhere = true;
+    const clause = ` AND metadata->>'source' = $${paramIndex}`;
+    vectorWhere += clause; ftsWhere += clause;
+    params.push(filters.source); paramIndex++;
   }
-
   if (filters.dateFrom) {
-    sql += hasWhere ? ` AND metadata->>'uploaded_at' >= $${paramIndex}` : ` WHERE metadata->>'uploaded_at' >= $${paramIndex}`;
-    params.push(filters.dateFrom);
-    paramIndex++;
-    hasWhere = true;
+    const clause = ` AND metadata->>'uploaded_at' >= $${paramIndex}`;
+    vectorWhere += clause; ftsWhere += clause;
+    params.push(filters.dateFrom); paramIndex++;
   }
-
   if (filters.dateTo) {
-    sql += hasWhere ? ` AND metadata->>'uploaded_at' <= $${paramIndex}` : ` WHERE metadata->>'uploaded_at' <= $${paramIndex}`;
-    params.push(filters.dateTo);
-    paramIndex++;
-    hasWhere = true;
+    const clause = ` AND metadata->>'uploaded_at' <= $${paramIndex}`;
+    vectorWhere += clause; ftsWhere += clause;
+    params.push(filters.dateTo); paramIndex++;
   }
 
-  // Add similarity threshold and ordering
-  // NOTE: ORDER BY with distance operator seems to have issues
-  // Use similarity column for ordering instead
-  sql += ` ORDER BY similarity DESC LIMIT ${k}`;
+  const sql = `
+    WITH vector_search AS (
+      SELECT content, metadata, 1 - (embedding <=> $1::vector) as similarity 
+      FROM document_chunks 
+      WHERE ${vectorWhere} 
+      ORDER BY similarity DESC LIMIT ${CANDIDATES}
+    ),
+    fts_search AS (
+      SELECT content, metadata, 1.0 as similarity 
+      FROM document_chunks 
+      WHERE ${ftsWhere}
+      LIMIT ${CANDIDATES}
+    )
+    SELECT * FROM fts_search
+    UNION
+    SELECT * FROM vector_search
+    ORDER BY similarity DESC
+    LIMIT ${CANDIDATES}
+  `;
 
   // 3. Execute search
   const startTime = Date.now();
-  logger.debug('Executing SQL', {
-    sql: sql.substring(0, 200),
-    paramsCount: params.length,
-    param1Type: typeof params[0],
-    param1Length: typeof params[0] === 'string' ? params[0].length : 'N/A',
-    paramsList: params.map((p, i) => i === 0 ? `param${i}: [embedding]` : `param${i}: ${p}`)
-  });
-
-  // Direct test query to verify params work
-  const testResult = await db.query(
-    `SELECT COUNT(*) as total FROM document_chunks`
-  );
-  logger.debug('Total chunks in DB:', testResult.rows[0]);
-
   const result = await db.query(sql, params);
   const duration = Date.now() - startTime;
 
   logger.info('Search completed', {
     query,
-    resultsFound: result.rows.length,
+    candidatesFound: result.rows.length,
     durationMs: duration
   });
 
-  if (result.rows.length > 0) {
-    logger.debug('Top result', {
-      similarity: result.rows[0].similarity,
-      source: result.rows[0].metadata?.source
+  // 4. Parse all candidates
+  const candidates: SearchResult[] = result.rows.map(row => ({
+    content: row.content,
+    similarity: parseFloat(row.similarity),
+    citation: {
+      source: row.metadata.source || 'Unknown',
+      page: row.metadata.page || null,
+      docType: row.metadata.doc_type || 'unknown'
+    },
+    metadata: row.metadata
+  }));
+
+  // 5. Diversity reranking:
+  //    - Always include the best chunk from each unique source document
+  //    - Then fill remaining slots with highest-similarity chunks (dedup)
+  const bySource = new Map<string, SearchResult>();
+  for (const c of candidates) {
+    const src = c.citation.source;
+    if (!bySource.has(src) || c.similarity > bySource.get(src)!.similarity) {
+      bySource.set(src, c);
+    }
+  }
+
+  // Start with one representative per source (sorted by their best similarity)
+  const diverse = Array.from(bySource.values()).sort((a, b) => b.similarity - a.similarity);
+
+  // Fill remaining k slots with remaining candidates (not already in diverse)
+  const diverseSet = new Set(diverse.map(r => r.content));
+  for (const c of candidates) {
+    if (diverse.length >= k) break;
+    if (!diverseSet.has(c.content)) {
+      diverse.push(c);
+      diverseSet.add(c.content);
+    }
+  }
+
+  // Final result: top k sorted by similarity
+  const searchResults = diverse.slice(0, k).sort((a, b) => b.similarity - a.similarity);
+
+  if (searchResults.length > 0) {
+    logger.debug('Top result after diversity reranking', {
+      similarity: searchResults[0].similarity,
+      source: searchResults[0].citation.source,
+      uniqueSources: diverse.length
     });
   }
 
-  // 4. Format results with citations
-  const searchResults: SearchResult[] = result.rows.map(row => {
-    const metadata = row.metadata;
-
-    return {
-      content: row.content,
-      similarity: parseFloat(row.similarity),
-      citation: {
-        source: metadata.source || 'Unknown',
-        page: metadata.page || null,
-        docType: metadata.doc_type || 'unknown'
-      },
-      metadata
-    };
-  });
-
-  // 5. Track document usage statistics
+  // 6. Track document usage statistics
   if (searchResults.length > 0) {
-    // Collect unique sources from results
     const sources = [...new Set(searchResults.map(r => r.citation.source))];
-
-    // Increment usage count for each document (non-blocking)
     for (const source of sources) {
       DocumentsRepository.incrementUsageCount(source).catch(err => {
         logger.error('Failed to track document usage', { source, error: err.message });
@@ -153,13 +168,13 @@ export async function searchDocuments(
     }
   }
 
-  // 6. Warn if no results found
   if (searchResults.length === 0) {
     logger.warn('No relevant documents found', { query, minSimilarity });
   }
 
   return searchResults;
 }
+
 
 /**
  * Get document statistics

@@ -56,9 +56,10 @@ FROM node:20-slim AS production
 
 WORKDIR /app
 
-# Install curl for healthcheck (minimal layer)
+# Install curl for healthcheck and ca-certificates for SSL
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl && \
+    apt-get install -y --no-install-recommends curl ca-certificates && \
+    update-ca-certificates && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 

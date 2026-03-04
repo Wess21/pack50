@@ -49,4 +49,20 @@ export interface SessionData {
    * Increments across messages to verify Redis storage working
    */
   messageCount?: number;
+
+  /**
+   * Flag indicating if the lead information has already been collected and sent
+   * to avoid duplicate webhook/notification spam
+   */
+  leadCollected?: boolean;
+
+  /**
+   * Flag to limit contact request spam
+   */
+  hasRequestedContacts?: boolean;
+
+  /**
+   * Selected items/cart for the user's order
+   */
+  cart?: string;
 }

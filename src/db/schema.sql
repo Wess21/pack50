@@ -180,6 +180,8 @@ CREATE TABLE IF NOT EXISTS bot_config (
   encryption_iv TEXT,
   webhook_url TEXT,
   default_filters JSONB,
+  contact_notification_transport VARCHAR(20) DEFAULT 'none',
+  contact_notification_destination TEXT,
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   CONSTRAINT singleton CHECK (id = 1)
 );
@@ -191,6 +193,19 @@ ON CONFLICT (id) DO NOTHING;
 -- Add columns to bot_config for backwards compatibility
 ALTER TABLE bot_config ADD COLUMN IF NOT EXISTS api_base_url TEXT;
 ALTER TABLE bot_config ADD COLUMN IF NOT EXISTS llm_model_name TEXT DEFAULT 'gpt-4o';
+ALTER TABLE bot_config ADD COLUMN IF NOT EXISTS contact_notification_transport VARCHAR(20) DEFAULT 'none';
+ALTER TABLE bot_config ADD COLUMN IF NOT EXISTS contact_notification_destination TEXT;
+
+-- Contacts storage table
+CREATE TABLE IF NOT EXISTS collected_contacts (
+  id SERIAL PRIMARY KEY,
+  user_id BIGINT,
+  contact_data JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Index for contacts
+CREATE INDEX IF NOT EXISTS idx_collected_contacts_created_at ON collected_contacts(created_at DESC);
 
 -- LLM providers table for multi-provider management
 CREATE TABLE IF NOT EXISTS llm_providers (

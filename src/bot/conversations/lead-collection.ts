@@ -10,9 +10,9 @@ import {
   addMessage,
   updateConversationLeadData,
   createLead,
-  findLeadByEmail,
 } from '../../api/repositories/index.js';
 import { logger } from '../../utils/logger.js';
+import { processCollectedContact } from '../../api/services/contact-notification.js';
 
 /**
  * Lead collection conversation flow
@@ -44,7 +44,7 @@ export async function leadCollectionFlow(
   });
 
   // Fetch greeting from config or use default
-  let greetingMsg = 'Привет! Я помогу вам оставить заявку. Как вас зовут?';
+  let greetingMsg = 'Для оформления заявки оставьте, пожалуйста, ваш номер телефона:';
   try {
     const configResult = await conversation.external(async () => {
       return await db.query('SELECT greeting_message FROM bot_config WHERE id = 1');
@@ -56,8 +56,21 @@ export async function leadCollectionFlow(
     logger.warn('Failed to fetch greeting_message from bot_config, using default', { error: err });
   }
 
+  // Check if there is an active order cart
+  const cart = await conversation.external(async () => ctx.session.cart);
+  if (cart) {
+    greetingMsg = `Ваш заказ:\n\n${cart}\n\nДля передачи заявки менеджеру, пожалуйста, напишите ваш контактный номер телефона:`;
+  }
+
+  logger.info('Sending greeting message', { userId: ctx.from?.id, greetingMsg });
+
   // Welcome message
-  await ctx.reply(greetingMsg);
+  try {
+    await ctx.reply(greetingMsg);
+    logger.info('Greeting message sent successfully', { userId: ctx.from?.id });
+  } catch (err) {
+    logger.error('Failed to send greeting message', { userId: ctx.from?.id, error: err });
+  }
 
   // Add assistant message to history
   await conversation.external(async () => {
@@ -79,16 +92,25 @@ export async function leadCollectionFlow(
       break;
     }
 
+    logger.info('Waiting for user contact information...', { userId: ctx.from?.id });
     // Wait for user message
     const msgCtx = await conversation.waitFor('message:text');
+    logger.info('Received user contact message', { userId: ctx.from?.id, text: msgCtx.message.text });
 
     // Extract data from message (wrapped in external to avoid replay)
+    logger.info('Extracting data from message...', { userId: ctx.from?.id, text: msgCtx.message.text });
     const extracted = await conversation.external(async () => {
-      const result = await extractDataFromMessage(
-        msgCtx.message.text,
-        ctx.session.leadData
-      );
-      return result;
+      try {
+        const result = await extractDataFromMessage(
+          msgCtx.message.text,
+          ctx.session.leadData
+        );
+        logger.info('Extraction result received', { userId: ctx.from?.id, result });
+        return result;
+      } catch (err) {
+        logger.error('Extraction failed', { userId: ctx.from?.id, error: err });
+        return {};
+      }
     });
 
     // Update session with extracted data
@@ -119,14 +141,10 @@ export async function leadCollectionFlow(
 
     let nextQuestion: string;
 
-    if (!leadData.name) {
-      nextQuestion = 'Отлично! А как мне к вам обращаться?';
-    } else if (!leadData.email) {
-      nextQuestion = 'Прекрасно! Какой у вас email?';
-    } else if (!leadData.phone) {
-      nextQuestion = 'Последний вопрос - ваш номер телефона?';
+    if (!leadData.phone) {
+      nextQuestion = 'Оставьте, пожалуйста, ваш контактный номер телефона для оформления заказа.';
     } else {
-      // All data collected
+      // All necessary data (just phone) collected
       break;
     }
 
@@ -150,77 +168,70 @@ export async function leadCollectionFlow(
 
   const leadData = await conversation.external(async () => ctx.session.leadData);
 
-  // Check for duplicate lead by email
-  const existingLead = await conversation.external(async () => {
-    return await findLeadByEmail(leadData.email!);
-  });
-
-  if (existingLead) {
-    logger.info('Duplicate lead detected', {
-      email: leadData.email,
-      existingLeadId: existingLead.id,
-    });
-
-    // Show duplicate warning with options
-    const duplicateKeyboard = new InlineKeyboard()
-      .text('✓ Обновить данные', 'update_lead')
-      .text('✗ Отмена', 'cancel_lead');
-
-    await ctx.reply(
-      `У нас уже есть заявка с email ${leadData.email} от ${existingLead.created_at.toLocaleDateString()}.\n\n` +
-      `Хотите обновить информацию?`,
-      { reply_markup: duplicateKeyboard }
-    );
-
-    const duplicateCallback = await conversation.waitFor('callback_query:data');
-    await duplicateCallback.answerCallbackQuery();
-
-    if (duplicateCallback.callbackQuery.data === 'cancel_lead') {
-      await duplicateCallback.editMessageText('Заявка не создана. Используйте /start чтобы начать заново.');
-
-      // Reset session
-      await conversation.external(async () => {
-        ctx.session.conversationState = 'idle';
-        ctx.session.leadData = {};
-        ctx.session.messageHistory = [];
-        ctx.session.lastActivityAt = new Date();
-      });
-
-      logger.info('Lead creation cancelled due to duplicate', {
-        userId: ctx.from?.id,
-        email: leadData.email,
-      });
-
-      return; // Exit conversation
-    }
-
-    // User chose to update - continue to confirmation
-  }
-
   // Show confirmation message with inline keyboard
   const confirmKeyboard = new InlineKeyboard()
     .text('✓ Подтвердить', 'confirm_lead')
     .text('✗ Начать заново', 'edit_lead');
 
-  const confirmationMessage =
-    `Пожалуйста, проверьте информацию:\n\n` +
-    `Имя: ${leadData.name}\n` +
-    `Email: ${leadData.email}\n` +
-    `Телефон: ${leadData.phone}\n\n` +
+  const confirmationCart = await conversation.external(async () => ctx.session.cart);
+  let confirmationMessage = `Пожалуйста, проверьте информацию:\n\n`;
+  if (confirmationCart) {
+    confirmationMessage += `📝 Заказ:\n${confirmationCart}\n\n`;
+  }
+  confirmationMessage +=
+    `📞 Телефон: ${leadData.phone || 'Не указан'}\n\n` +
     `Все верно?`;
 
   await ctx.reply(confirmationMessage, {
     reply_markup: confirmKeyboard,
   });
 
-  // Wait for callback query (button press)
-  const callbackCtx = await conversation.waitFor('callback_query:data');
+  // Wait for callback query (button press) or text message
+  let confirmed = false;
+  let retryCount = 0;
+  let finalCtx: any = null;
 
-  // Answer callback query (removes "loading" state from button)
-  await callbackCtx.answerCallbackQuery();
+  while (!confirmed && retryCount < 5) {
+    const responseCtx = await conversation.waitFor(['callback_query:data', 'message:text']);
 
-  // Handle confirmation
-  if (callbackCtx.callbackQuery.data === 'confirm_lead') {
+    // Handle button click (callback query)
+    if (responseCtx.callbackQuery) {
+      await responseCtx.answerCallbackQuery();
+      if (responseCtx.callbackQuery.data === 'confirm_lead') {
+        confirmed = true;
+        finalCtx = responseCtx;
+        break;
+      } else if (responseCtx.callbackQuery.data === 'edit_lead') {
+        // Restart conversation by clearing data
+        await conversation.external(async () => {
+          ctx.session.leadData = {};
+        });
+        await ctx.reply('Хорошо, давайте начнем заново. Используйте /start или просто напишите ваше имя.');
+        return;
+      }
+    }
+
+    // Handle text message
+    if (responseCtx.message?.text) {
+      const text = responseCtx.message.text;
+
+      // If it's a command, exit and let global handler take over
+      if (text.startsWith('/')) {
+        await ctx.reply('Прерываю оформление заявки...');
+        await conversation.external(async () => {
+          ctx.session.conversationState = 'idle';
+        });
+        return; // Exit conversation
+      }
+
+      // If they type something else, just re-ask for the button click
+      await responseCtx.reply('Пожалуйста, подтвердите заявку нажатием на кнопку "Подтвердить" или "Начать заново".');
+      retryCount++;
+    }
+  }
+
+  // Handle confirmation logic
+  if (confirmed && finalCtx) {
     // Persist to database (wrapped in external)
     const result = await conversation.external(async () => {
       try {
@@ -243,13 +254,20 @@ export async function leadCollectionFlow(
         // Save lead data to conversation
         await updateConversationLeadData(conv.id, ctx.session.leadData);
 
+        const finalAdditionalInfo = ctx.session.cart
+          ? `Корзина клиента:\n${ctx.session.cart}\n\nДоп. инфо: ${ctx.session.leadData.additional_info || ''}`
+          : (ctx.session.leadData.additional_info || '');
+
+        // Update the session lead data so the notification service gets the cart!
+        ctx.session.leadData.additional_info = finalAdditionalInfo;
+
         // Create structured lead record
         const lead = await createLead(
           conv.id,
-          ctx.session.leadData.name!,
-          ctx.session.leadData.email!,
-          ctx.session.leadData.phone!,
-          ctx.session.leadData.additional_info
+          ctx.session.leadData.name || '',
+          ctx.session.leadData.email || '',
+          ctx.session.leadData.phone || '',
+          finalAdditionalInfo
         );
 
         logger.info('Lead data persisted to database', {
@@ -258,6 +276,9 @@ export async function leadCollectionFlow(
           leadId: lead.id,
           leadData: ctx.session.leadData,
         });
+
+        // Forward to admin via selected transport
+        await processCollectedContact(user.id, ctx.session.leadData, ctx);
 
         return { success: true, leadId: lead.id };
       } catch (error) {
@@ -270,11 +291,11 @@ export async function leadCollectionFlow(
 
     if (result.success) {
       // Edit confirmation message to show success (prevents new message)
-      await callbackCtx.editMessageText(
+      await finalCtx.editMessageText(
         '✓ Спасибо! Ваша заявка принята. Мы свяжемся с вами в ближайшее время.'
       );
     } else {
-      await callbackCtx.reply(
+      await finalCtx.reply(
         'Произошла ошибка при сохранении заявки. Попробуйте еще раз позже.'
       );
     }
@@ -288,21 +309,6 @@ export async function leadCollectionFlow(
     });
 
     logger.info('Lead collection flow completed successfully', {
-      userId: ctx.from?.id,
-    });
-  } else {
-    // User clicked "Edit" - restart conversation
-    await callbackCtx.editMessageText('Хорошо, начнем заново. Используйте /start чтобы начать сначала.');
-
-    // Reset session
-    await conversation.external(async () => {
-      ctx.session.conversationState = 'idle';
-      ctx.session.leadData = {};
-      ctx.session.messageHistory = [];
-      ctx.session.lastActivityAt = new Date();
-    });
-
-    logger.info('Lead collection flow cancelled by user', {
       userId: ctx.from?.id,
     });
   }

@@ -59,7 +59,7 @@ router.post('/login', async (req, res) => {
 router.get('/config', requireAdmin, async (_req, res) => {
   try {
     const result = await db.query(
-      'SELECT active_model, active_template, greeting_message, webhook_url, api_base_url, llm_model_name FROM bot_config WHERE id = 1'
+      'SELECT active_model, active_template, greeting_message, webhook_url, api_base_url, llm_model_name, contact_notification_transport, contact_notification_destination FROM bot_config WHERE id = 1'
     );
 
     res.json(result.rows[0] || {});
@@ -84,6 +84,8 @@ router.put('/config', requireAdmin, async (req: AdminRequest, res) => {
       openai_api_key,
       api_base_url,
       llm_model_name,
+      contact_notification_transport,
+      contact_notification_destination,
     } = req.body;
 
     const updates: string[] = [];
@@ -118,6 +120,16 @@ router.put('/config', requireAdmin, async (req: AdminRequest, res) => {
     if (llm_model_name) {
       updates.push(`llm_model_name = $${paramIndex++}`);
       values.push(llm_model_name);
+    }
+
+    if (contact_notification_transport !== undefined) {
+      updates.push(`contact_notification_transport = $${paramIndex++}`);
+      values.push(contact_notification_transport);
+    }
+
+    if (contact_notification_destination !== undefined) {
+      updates.push(`contact_notification_destination = $${paramIndex++}`);
+      values.push(contact_notification_destination);
     }
 
     // Encrypt API keys if provided
@@ -237,6 +249,22 @@ router.get('/analytics', requireAdmin, async (req, res) => {
 });
 
 /**
+ * GET /api/admin/contacts
+ * Protected - list collected contacts
+ */
+router.get('/contacts', requireAdmin, async (_req, res) => {
+  try {
+    const result = await db.query(
+      'SELECT id, user_id, contact_data, created_at FROM collected_contacts ORDER BY created_at DESC LIMIT 100'
+    );
+    res.json({ contacts: result.rows });
+  } catch (error: any) {
+    logger.error('Get contacts error', { error: error.message });
+    res.status(500).json({ error: 'Failed to fetch contacts' });
+  }
+});
+
+/**
  * PUT /api/admin/change-password
  * Protected - change admin user password
  */
@@ -272,6 +300,7 @@ router.put('/change-password', requireAdmin, async (req: AdminRequest, res) => {
     const valid = await bcrypt.compare(currentPassword, currentHash);
 
     if (!valid) {
+      logger.warn('Change password failed: invalid current password', { adminId: req.adminId });
       res.status(401).json({ error: 'Current password is incorrect' });
       return;
     }
@@ -281,7 +310,7 @@ router.put('/change-password', requireAdmin, async (req: AdminRequest, res) => {
 
     // Update password
     await db.query(
-      'UPDATE admin_users SET password_hash = $1, updated_at = NOW() WHERE id = $2',
+      'UPDATE admin_users SET password_hash = $1 WHERE id = $2',
       [newHash, req.adminId]
     );
 

@@ -20,9 +20,12 @@ async function startCommand(ctx: MyContext): Promise<void> {
   ctx.session.leadData = {};
   ctx.session.messageHistory = [];
   ctx.session.lastActivityAt = new Date();
+  ctx.session.leadCollected = false;
 
-  // Force exit any active grammar conversation
-  await ctx.conversation.exit();
+  // Force exit any active grammar conversation if the plugin is initialized
+  if (ctx.conversation) {
+    await ctx.conversation.exit();
+  }
 
   // Fetch greeting from config or use default
   let greetingMsg = 'Привет! Я ИИ-ассистент, готов помочь с вашими документами.';

@@ -341,6 +341,7 @@
       <!-- Navigation Tabs -->
       <div class="nav-tabs">
         <button class="nav-tab active" onclick="switchTab('documents')">Документы</button>
+        <button class="nav-tab" onclick="switchTab('contacts')">Контакты</button>
         <button class="nav-tab" onclick="switchTab('config')">Настройки API</button>
         <button class="nav-tab" onclick="switchTab('prompts')">Промпты</button>
         <button class="nav-tab" onclick="switchTab('analytics')">Аналитика</button>
@@ -397,8 +398,8 @@
           <h2 style="margin-bottom:16px;">Загрузить документ</h2>
           <form id="uploadForm" style="display:flex; gap:16px; align-items:flex-end;">
             <div class="form-group" style="flex:1; margin-bottom:0;">
-              <label>Выберите файл (PDF, DOCX, TXT)</label>
-              <input type="file" id="fileInput" accept=".pdf,.docx,.txt" required>
+              <label>Выберите файл (PDF, DOCX, TXT, XLSX)</label>
+              <input type="file" id="fileInput" accept=".pdf,.docx,.txt,.xlsx,.xls" required>
             </div>
             <button type="submit" style="white-space:nowrap;">Загрузить</button>
           </form>
@@ -502,6 +503,56 @@
         <div id="analyticsData" class="status hidden" style="margin-top: 20px;"></div>
       </div>
 
+      <!-- Contacts Tab -->
+      <div id="contactsTab" class="section">
+        <h2>Управление Контактами</h2>
+
+        <div style="background: #f9f9f9; padding: 20px; border: 1px solid #ddd; margin-bottom: 25px;">
+          <h3 style="font-size: 15px; margin-bottom: 15px;">Настройки уведомлений</h3>
+          <form id="contactConfigForm">
+            <div class="grid">
+              <div class="form-group">
+                <label>Способ доставки уведомлений</label>
+                <select id="contactTransport">
+                  <option value="none">Выключено</option>
+                  <option value="email">Email письма</option>
+                  <option value="telegram_group">Telegram Группа</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Адрес назначения (Email или ID чата)</label>
+                <input type="text" id="contactDestination" placeholder="example@mail.com или -100123...">
+              </div>
+            </div>
+            <button type="submit">Сохранить настройки</button>
+            <div id="contactConfigStatus" class="status hidden"></div>
+          </form>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+          <h3 style="font-size: 15px; margin-bottom: 0;">Собранные контакты</h3>
+          <button onclick="loadContacts()">Обновить список</button>
+        </div>
+
+        <div style="overflow-x: auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Дата</th>
+                <th>User ID</th>
+                <th>Данные контакта</th>
+              </tr>
+            </thead>
+            <tbody id="contactsTableBody">
+              <tr>
+                <td colspan="4" style="text-align:center; padding: 30px; color: #666;">Загрузка контактов...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <!-- Settings Tab -->
       <div id="settingsTab" class="section">
         <h2>Безопасность аккаунта</h2>
@@ -569,6 +620,36 @@
         loadDocuments();
       } else if (tabName === 'config') {
         loadProviders();
+      } else if (tabName === 'contacts') {
+        loadContacts();
+      }
+    }
+
+    async function loadContacts() {
+      const container = document.getElementById('contactsTableBody');
+      try {
+        const res = await fetch('/api/admin/contacts', {
+          headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        const data = await res.json();
+        const contacts = data.contacts || [];
+
+        if (contacts.length === 0) {
+          container.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 30px; color: #666;">Пока нет собранных контактов.</td></tr>';
+          return;
+        }
+
+        container.innerHTML = contacts.map(c => `
+          <tr>
+            <td>#${c.id}</td>
+            <td>${new Date(c.created_at).toLocaleString()}</td>
+            <td>${c.user_id || '—'}</td>
+            <td><pre style="margin:0; font-family:inherit; font-size:13px; white-space:pre-wrap;">${JSON.stringify(c.contact_data, null, 2)}</pre></td>
+          </tr>
+        `).join('');
+      } catch (err) {
+        console.error('Failed to load contacts:', err);
+        container.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 30px; color: #dc3545;">Ошибка загрузки списка контактов.</td></tr>';
       }
     }
 
@@ -764,11 +845,26 @@
 
         if (response.ok) {
           const config = await response.json();
-          if (config.anthropicApiKey) document.getElementById('anthropicKey').value = '••••••••';
-          if (config.openaiApiKey) document.getElementById('openaiKey').value = '••••••••';
-          if (config.active_model) document.getElementById('llmProvider').value = config.active_model;
-          if (config.api_base_url) document.getElementById('apiBaseUrl').value = config.api_base_url;
-          if (config.llm_model_name) document.getElementById('llmModelName').value = config.llm_model_name;
+          const elAnthropic = document.getElementById('anthropicKey');
+          if (config.anthropicApiKey && elAnthropic) elAnthropic.value = '••••••••';
+
+          const elOpenai = document.getElementById('openaiKey');
+          if (config.openaiApiKey && elOpenai) elOpenai.value = '••••••••';
+
+          const elProvider = document.getElementById('llmProvider');
+          if (config.active_model && elProvider) elProvider.value = config.active_model;
+
+          const elBaseUrl = document.getElementById('apiBaseUrl');
+          if (config.api_base_url && elBaseUrl) elBaseUrl.value = config.api_base_url;
+
+          const elModelName = document.getElementById('llmModelName');
+          if (config.llm_model_name && elModelName) elModelName.value = config.llm_model_name;
+
+          const elTransport = document.getElementById('contactTransport');
+          if (config.contact_notification_transport && elTransport) elTransport.value = config.contact_notification_transport;
+
+          const elDest = document.getElementById('contactDestination');
+          if (config.contact_notification_destination && elDest) elDest.value = config.contact_notification_destination;
           if (config.active_template) {
             const knownPersonas = ['consultant', 'support', 'orderTaker'];
             const sel = document.getElementById('personaSelect');
@@ -818,23 +914,43 @@
             return;
           }
 
+          let hasProcessing = false;
+
           docsData.documents.forEach(doc => {
             const row = document.createElement('tr');
             const uploadDate = new Date(doc.upload_date).toLocaleDateString('ru-RU');
 
+            const statusBadge = doc.status === 'processing'
+              ? '<span style="background:#f59e0b;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;">⏳ Загрузка</span>'
+              : doc.status === 'failed'
+                ? '<span style="background:#ef4444;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;">❌ Ошибка</span>'
+                : '';
+
+            if (doc.status === 'processing') hasProcessing = true;
+
             row.innerHTML = `
-              <td>${doc.title || doc.source}</td>
+              <td>${statusBadge} ${doc.title || doc.source}</td>
               <td><span class="badge ${doc.source_type}">${doc.source_type.toUpperCase()}</span></td>
               <td>${doc.chunk_count}</td>
               <td>${doc.usage_count}</td>
               <td>${uploadDate}</td>
               <td class="action-btns">
-                <button class="secondary" onclick="editDocument(${doc.id})">Изменить</button>
-                <button class="danger" onclick="deleteDocument(${doc.id}, '${doc.source.replace(/'/g, "\\'")}')" >Удалить</button>
+                ${doc.status !== 'processing' ? `
+                  <button class="secondary" onclick="editDocument(${doc.id})">Изменить</button>
+                  <button class="danger" onclick="deleteDocument(${doc.id}, '${doc.source.replace(/'/g, "\\'")}')">Удалить</button>
+                ` : '<span style="color:#888;font-size:12px;">обрабатывается...</span>'}
               </td>
             `;
             tbody.appendChild(row);
           });
+
+          // Auto-refresh while any document is processing
+          if (hasProcessing) {
+            clearTimeout(window._docPollTimer);
+            window._docPollTimer = setTimeout(() => loadDocuments(), 3000);
+          } else {
+            clearTimeout(window._docPollTimer);
+          }
         }
       } catch (error) {
         console.error('Failed to load documents:', error);
@@ -1055,6 +1171,50 @@
         }
       } catch (error) {
         showStatus(status, 'Ошибка соединения', 'error');
+      }
+    });
+
+    // Save Contact Configurations
+    document.getElementById('contactConfigForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const status = document.getElementById('contactConfigStatus');
+      const contact_notification_transport = document.getElementById('contactTransport').value;
+      const contact_notification_destination = document.getElementById('contactDestination').value;
+
+      try {
+        const response = await fetch('/api/admin/config', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`
+          },
+          body: JSON.stringify({ contact_notification_transport, contact_notification_destination })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+          showStatus(status, 'Настройки уведомлений сохранены', 'success');
+        } else {
+          showStatus(status, data.error || 'Ошибка сохранения', 'error');
+        }
+      } catch (error) {
+        showStatus(status, 'Ошибка соединения', 'error');
+      }
+    });
+
+    // Handle initial page load
+    window.addEventListener('DOMContentLoaded', () => {
+      if (authToken) {
+        showAdminPanel();
+        loadConfig();
+
+        // Check URL for specific tab or default to 'documents'
+        const urlParams = new URLSearchParams(window.location.search);
+        const tab = urlParams.get('tab') || 'documents';
+
+        // Ensure switchTab runs
+        switchTab(tab, false);
       }
     });
   </script>

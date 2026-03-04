@@ -2,6 +2,7 @@ import { loadPDF } from '../loaders/pdf-loader.js';
 import { loadDOCX } from '../loaders/docx-loader.js';
 import { loadURL } from '../loaders/web-loader.js';
 import { loadTXT } from '../loaders/txt-loader.js';
+import { loadXLSX } from '../loaders/xlsx-loader.js';
 import { RecursiveCharacterTextSplitter } from './text-splitter.js';
 import { embedBatch } from './embedding.js';
 import { db } from '../db/client.js';
@@ -18,6 +19,32 @@ export interface ProcessingJob {
   status: 'processing' | 'completed' | 'failed';
   chunksCreated?: number;
   error?: string;
+}
+
+/** Insert or update a document record and return its DB id */
+async function upsertDocument(source: string, sourceType: string, chunkCount: number, sizeBytes: number): Promise<number> {
+  const result = await db.query(
+    `INSERT INTO documents (source, source_type, title, chunk_count, total_size_bytes, status, upload_date)
+     VALUES ($1, $2, $3, $4, $5, 'active', NOW())
+     ON CONFLICT (source) DO UPDATE
+       SET chunk_count = EXCLUDED.chunk_count,
+           total_size_bytes = EXCLUDED.total_size_bytes,
+           status = 'active',
+           updated_at = NOW()
+     RETURNING id`,
+    [source, sourceType, source, chunkCount, sizeBytes]
+  );
+  return result.rows[0].id;
+}
+
+/** Mark a document as failed in the DB after a processing error */
+async function markDocumentFailed(source: string): Promise<void> {
+  try {
+    await db.query(
+      `UPDATE documents SET status = 'failed', updated_at = NOW() WHERE source = $1`,
+      [source]
+    );
+  } catch (e) { /* ignore secondary failures */ }
 }
 
 /**
@@ -54,7 +81,11 @@ export async function processPDF(
     const texts = allChunks.map(c => c.text);
     const embeddings = await embedBatch(texts);
 
-    // 4. Store in database
+    // 4. Upsert document record
+    const totalBytes = allChunks.reduce((s, c) => s + Buffer.byteLength(c.text, 'utf8'), 0);
+    await upsertDocument(filename, 'pdf', allChunks.length, totalBytes);
+
+    // 5. Store chunks in database
     const timestamp = new Date().toISOString();
 
     for (let i = 0; i < allChunks.length; i++) {
@@ -91,6 +122,7 @@ export async function processPDF(
     };
   } catch (error: any) {
     logger.error('PDF processing failed', { jobId, error: error.message });
+    await markDocumentFailed(filename);
     return {
       jobId,
       status: 'failed',
@@ -114,6 +146,10 @@ export async function processDOCX(
     const chunks = textSplitter.splitText(doc.text);
     const texts = chunks.map(c => c.text);
     const embeddings = await embedBatch(texts);
+
+    // Upsert document record
+    const totalBytes = texts.reduce((s, t) => s + Buffer.byteLength(t, 'utf8'), 0);
+    await upsertDocument(filename, 'docx', chunks.length, totalBytes);
 
     const timestamp = new Date().toISOString();
 
@@ -148,6 +184,7 @@ export async function processDOCX(
     };
   } catch (error: any) {
     logger.error('DOCX processing failed', { jobId, error: error.message });
+    await markDocumentFailed(filename);
     return {
       jobId,
       status: 'failed',
@@ -170,6 +207,10 @@ export async function processURL(
     const chunks = textSplitter.splitText(doc.text);
     const texts = chunks.map(c => c.text);
     const embeddings = await embedBatch(texts);
+
+    // Upsert document record
+    const totalBytes = texts.reduce((s, t) => s + Buffer.byteLength(t, 'utf8'), 0);
+    await upsertDocument(url, 'url', chunks.length, totalBytes);
 
     const timestamp = new Date().toISOString();
 
@@ -204,6 +245,7 @@ export async function processURL(
     };
   } catch (error: any) {
     logger.error('URL processing failed', { jobId, error: error.message });
+    await markDocumentFailed(url);
     return {
       jobId,
       status: 'failed',
@@ -227,6 +269,10 @@ export async function processTXT(
     const chunks = textSplitter.splitText(doc.text);
     const texts = chunks.map(c => c.text);
     const embeddings = await embedBatch(texts);
+
+    // Upsert document record
+    const totalBytes = texts.reduce((s, t) => s + Buffer.byteLength(t, 'utf8'), 0);
+    await upsertDocument(filename, 'txt', chunks.length, totalBytes);
 
     const timestamp = new Date().toISOString();
 
@@ -261,10 +307,62 @@ export async function processTXT(
     };
   } catch (error: any) {
     logger.error('TXT processing failed', { jobId, error: error.message });
+    await markDocumentFailed(filename);
     return {
       jobId,
       status: 'failed',
       error: error.message
     };
+  }
+}
+
+/**
+ * Process Excel file (xlsx/xls)
+ */
+export async function processXLSX(
+  filePath: string,
+  jobId: string,
+  filename: string
+): Promise<ProcessingJob> {
+  try {
+    logger.info('Processing XLSX', { jobId, filename });
+
+    const doc = await loadXLSX(filePath);
+    const chunks = textSplitter.splitText(doc.text);
+    const texts = chunks.map(c => c.text);
+    const embeddings = await embedBatch(texts);
+
+    // Upsert document record
+    const totalBytes = texts.reduce((s, t) => s + Buffer.byteLength(t, 'utf8'), 0);
+    await upsertDocument(filename, 'xlsx', chunks.length, totalBytes);
+
+    const timestamp = new Date().toISOString();
+
+    for (let i = 0; i < chunks.length; i++) {
+      await db.query(
+        `INSERT INTO document_chunks (content, embedding, metadata)
+         VALUES ($1, $2, $3)`,
+        [
+          chunks[i].text,
+          JSON.stringify(embeddings[i]),
+          JSON.stringify({
+            source: filename,
+            page: null,
+            doc_type: 'xlsx',
+            uploaded_at: timestamp,
+            chunk_index: i,
+            job_id: jobId
+          })
+        ]
+      );
+    }
+
+    logger.info('XLSX processing complete', { jobId, chunksCreated: chunks.length });
+
+    return { jobId, status: 'completed', chunksCreated: chunks.length };
+  } catch (error: any) {
+    logger.error('XLSX processing failed', { jobId, error: error.message });
+    await markDocumentFailed(filename);
+    return { jobId, status: 'failed', error: error.message };
   }
 }

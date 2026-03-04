@@ -1,0 +1,33 @@
+pack50_bot  | 2026-03-04 05:55:26 [[32minfo[39m]: Logger initialized {"environment":"production"}
+pack50_bot  | 2026-03-04 05:55:26 [[33mwarn[39m]: WEBHOOK_URL not configured - webhook delivery disabled 
+pack50_bot  | 2026-03-04 05:55:26 [[32minfo[39m]: Commands registered: /start, /help, /cancel 
+pack50_bot  | 2026-03-04 05:55:26 [[32minfo[39m]: === Pack50 Bot Starting === 
+pack50_bot  | 2026-03-04 05:55:26 [[32minfo[39m]: Environment {"nodeEnv":"production","port":3000,"webhookMode":false}
+pack50_bot  | 2026-03-04 05:55:26 [[32minfo[39m]: Initializing database... 
+pack50_bot  | Database connection established
+pack50_bot  | Database schema initialized successfully
+pack50_bot  | 2026-03-04 05:55:26 [[32minfo[39m]: Seeding admin user... 
+pack50_bot  | 2026-03-04 05:55:26 [[32minfo[39m]: Admin user already exists, skipping seed 
+pack50_bot  | 2026-03-04 05:55:26 [[32minfo[39m]: Preloading embedding model... 
+pack50_bot  | Loading embedding model: Xenova/all-MiniLM-L6-v2...
+pack50_bot  | Embedding model loaded successfully
+pack50_bot  | 2026-03-04 05:55:43 [[32minfo[39m]: Embedding model preloaded 
+pack50_bot  | 2026-03-04 05:55:43 [[32minfo[39m]: Starting bot in long polling mode (development)... 
+pack50_bot  | 2026-03-04 05:55:43 [[32minfo[39m]: Starting bot with long polling... 
+pack50_bot  | 2026-03-04 05:55:43 [[32minfo[39m]: API server listening on port 3000 
+pack50_bot  | 2026-03-04 05:55:44 [[32minfo[39m]: Bot @ai_pack_30_bot started successfully 
+pack50_bot  | 2026-03-04 05:56:35 [[32minfo[39m]: Redis connected for session storage 
+pack50_bot  | 2026-03-04 05:56:35 [[32minfo[39m]: Processing RAG query {"userId":8132136998,"query":"Вот мой телефон 89991112233"}
+pack50_bot  | 2026-03-04 05:56:36 [[32minfo[39m]: Searching documents {"query":"Вот мой телефон 89991112233","k":5,"filters":{}}
+pack50_bot  | 2026-03-04 05:56:36 [[32minfo[39m]: Search completed {"query":"Вот мой телефон 89991112233","resultsFound":5,"durationMs":20}
+pack50_bot  | 2026-03-04 05:56:36 [[32minfo[39m]: Creating LLM provider from llm_providers table {"providerType":"openai","hasBaseUrl":true,"modelName":null}
+pack50_bot  | 2026-03-04 05:56:36 [[32minfo[39m]: OpenAIProvider initialized {"model":"gpt-4o","baseURL":"https://api.vsellm.ru/v1"}
+pack50_bot  | 2026-03-04 05:56:38 [[32minfo[39m]: OpenAI API response {"inputTokens":1707,"outputTokens":43,"totalTokens":1750}
+pack50_bot  | 2026-03-04 05:56:39 [[32minfo[39m]: RAG query completed {"userId":8132136998,"resultsFound":5,"avgSimilarity":0.4561443490462954}
+pack50_bot  | 2026-03-04 05:56:55 [[32minfo[39m]: Processing RAG query {"userId":8132136998,"query":"Привет, отправь мой номер 89990001234 админу"}
+pack50_bot  | 2026-03-04 05:56:55 [[32minfo[39m]: Searching documents {"query":"Привет, отправь мой номер 89990001234 админу","k":5,"filters":{}}
+pack50_bot  | 2026-03-04 05:56:55 [[32minfo[39m]: Search completed {"query":"Привет, отправь мой номер 89990001234 админу","resultsFound":5,"durationMs":5}
+pack50_bot  | 2026-03-04 05:56:55 [[32minfo[39m]: Creating LLM provider from llm_providers table {"providerType":"openai","hasBaseUrl":true,"modelName":null}
+pack50_bot  | 2026-03-04 05:56:55 [[32minfo[39m]: OpenAIProvider initialized {"model":"gpt-4o","baseURL":"https://api.vsellm.ru/v1"}
+pack50_bot  | 2026-03-04 05:56:58 [[32minfo[39m]: OpenAI API response {"inputTokens":1698,"outputTokens":50,"totalTokens":1748}
+pack50_bot  | 2026-03-04 05:56:58 [[32minfo[39m]: RAG query completed {"userId":8132136998,"resultsFound":5,"avgSimilarity":0.5258062446447077}

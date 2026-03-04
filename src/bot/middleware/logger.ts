@@ -15,7 +15,7 @@ export async function loggerMiddleware(ctx: MyContext, next: NextFunction): Prom
   const messageText = ctx.message?.text || ctx.callbackQuery?.data || 'no text';
   const truncatedText = messageText.length > 100 ? `${messageText.substring(0, 100)}...` : messageText;
 
-  logger.debug('Incoming update', {
+  logger.info('Incoming update', {
     updateId,
     from: from ? { id: from.id, username: from.username, firstName: from.first_name } : undefined,
     chatId,

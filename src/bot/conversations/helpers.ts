@@ -61,7 +61,7 @@ export async function manageConversationContext(session: SessionData): Promise<M
           .join('\n');
 
         const response = await anthropic.messages.create({
-          model: 'claude-sonnet-4-5-20250929',
+          model: 'claude-3-5-sonnet-latest',
           max_tokens: 200,
           messages: [
             {
@@ -104,5 +104,6 @@ export async function manageConversationContext(session: SessionData): Promise<M
  * @returns True if name, email, and phone are present
  */
 export function isLeadComplete(leadData: Partial<SessionData['leadData']>): boolean {
-  return Boolean(leadData.name && leadData.email && leadData.phone);
+  // Only phone is mandatory now based on user requirements
+  return Boolean(leadData.phone);
 }
