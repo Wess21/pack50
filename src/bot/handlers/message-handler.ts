@@ -15,6 +15,46 @@ const contextManager = new ContextManager();
 const webhookService = new WebhookService(env.WEBHOOK_URL || '');
 
 /**
+ * Smart text truncation - cuts at last complete sentence/paragraph before limit
+ */
+function smartTruncate(text: string, maxLength: number): string {
+  if (text.length <= maxLength) return text;
+
+  // Try to cut at paragraph break
+  const cutPoint = text.lastIndexOf('\n\n', maxLength);
+  if (cutPoint > maxLength * 0.8) {
+    return text.substring(0, cutPoint) + '\n\n[...текст обрезан]';
+  }
+
+  // Try to cut at line break
+  const lineBreak = text.lastIndexOf('\n', maxLength);
+  if (lineBreak > maxLength * 0.8) {
+    return text.substring(0, lineBreak) + '\n[...текст обрезан]';
+  }
+
+  // Try to cut at sentence end
+  const sentenceEnd = Math.max(
+    text.lastIndexOf('. ', maxLength),
+    text.lastIndexOf('! ', maxLength),
+    text.lastIndexOf('? ', maxLength)
+  );
+  if (sentenceEnd > maxLength * 0.8) {
+    return text.substring(0, sentenceEnd + 1) + '\n[...текст обрезан]';
+  }
+
+  // Fallback: hard cut with ellipsis
+  return text.substring(0, maxLength - 20) + '...\n[текст обрезан]';
+}
+
+/**
+ * Parse cart lines and calculate total price
+ * Handles format: "N шт × Model — Price₽" (with comma or dot as decimal separator)
+ */
+function calculateCartTotal(cart: string): string {
+  return `${cart}\n\n📌 Итоговую стоимость вместе со скидками уточнит менеджер.`;
+}
+
+/**
  * Handle non-conversation messages with RAG retrieval
  * Called when user sends message outside of active conversation flow
  */
@@ -25,9 +65,15 @@ export async function handleMessage(ctx: MyContext) {
     return;  // Ignore non-text messages
   }
 
-  // Skip if user is in active conversation flow
+  // NOTE: We do NOT check conversationState here.
+  // grammY conversations middleware handles routing automatically:
+  // if there's an active conversation it intercepts first, otherwise we process normally.
+  // A stale conversationState check here was causing the bot to go silent after
+  // a conversation exited without a clean state reset.
+
+  // Reset any stale non-idle state so session stays consistent
   if (ctx.session.conversationState !== 'idle') {
-    return;  // Let conversation handler process
+    ctx.session.conversationState = 'idle';
   }
 
   // Extract lead data silently in background
@@ -60,11 +106,15 @@ The user sent this message: "${messageText}"
 
 Your task is to extract ALL products they are looking for and provide professional synonyms or related terms that might be found in a formal price list or catalog.
 
-For example:
+Examples of expansions:
 - "шурик" -> "шуруповерт дрель аккумуляторная"
 - "спецзащита" -> "спецодежда СИЗ защита"
 - "болгарка" -> "УШМ шлифмашина углошлифовальная"
 - "перфик" -> "перфоратор ударная дрель"
+- "перчатки" -> "перчатки нитриловые латексные рабочие СИЗ"
+- "очки" -> "очки защитные очки строительные"
+- "каска" -> "каска защитная шлем строительный"
+- "наушники" -> "наушники противошумные беруши защита слуха"
 - "лом" -> "лом монтировка инструмент"
 
 If the message contains MULTIPLE products (e.g., "10 ломов, 5 шуриков, 3 перфоратора"), extract EACH product separately on a new line.
@@ -75,7 +125,7 @@ Return ONLY the expanded keywords, one product per line. If no expansion is need
       const expansionResponse = await llmProvider.generateResponse({
         messages: [{ role: 'user', content: expansionPrompt }],
         systemPrompt: 'You are a helpful search assistant.',
-        maxTokens: 150
+        maxTokens: 200
       });
 
       const expansions = expansionResponse.content.trim();
@@ -86,34 +136,66 @@ Return ONLY the expanded keywords, one product per line. If no expansion is need
         logger.info('Expanded search query', {
           original: messageText,
           expanded: expandedQuery,
-          productCount: productList.length
+          productCount: productList.length,
+          products: productList
         });
       }
     } catch (expErr) {
       logger.warn('Query expansion failed, using original', { error: expErr });
     }
 
-    // 2. Search relevant documents using the expanded query
-    // Increase k based on number of products (more products = more chunks needed)
-    const dynamicK = Math.max(10, productList.length * 5);
-    const searchResults = await searchDocuments(expandedQuery, {
-      k: dynamicK,
-      minSimilarity: 0.05  // Very low threshold - let diversity reranking handle quality
-    });
+    // 2. Per-product parallel search — each product gets its own dedicated search
+    //    so no single product "drowns out" another in a blended embedding vector.
+    let searchResults: Awaited<ReturnType<typeof searchDocuments>> = [];
 
-    // Log search results for debugging
-    logger.info('RAG search completed', {
-      userId: ctx.from?.id,
-      query: messageText.substring(0, 100),
-      expandedQuery: expandedQuery.substring(0, 200),
-      productsDetected: productList.length,
-      chunksFound: searchResults.length,
-      topSources: searchResults.slice(0, 3).map(r => ({
-        source: r.citation.source,
-        similarity: r.similarity.toFixed(3),
-        preview: r.content.substring(0, 80)
-      }))
-    });
+    if (productList.length > 1) {
+      // Run searches in parallel, 5 chunks per product
+      const perProductK = 5;
+      const perProductResults = await Promise.all(
+        productList.map(product =>
+          searchDocuments(product, { k: perProductK, minSimilarity: 0.05 }).catch(err => {
+            logger.warn('Per-product search failed', { product, error: err });
+            return [] as typeof searchResults;
+          })
+        )
+      );
+
+      // Merge: deduplicate by content, keep highest similarity for duplicates
+      const seenContent = new Map<string, typeof searchResults[number]>();
+      for (const results of perProductResults) {
+        for (const r of results) {
+          const existing = seenContent.get(r.content);
+          if (!existing || r.similarity > existing.similarity) {
+            seenContent.set(r.content, r);
+          }
+        }
+      }
+      searchResults = Array.from(seenContent.values()).sort((a, b) => b.similarity - a.similarity);
+
+      logger.info('Per-product parallel search completed', {
+        userId: ctx.from?.id,
+        products: productList,
+        totalUniqueChunks: searchResults.length,
+        topChunks: searchResults.slice(0, 3).map(r => ({
+          source: r.citation.source,
+          similarity: r.similarity.toFixed(3),
+          preview: r.content.substring(0, 80)
+        }))
+      });
+    } else {
+      // Single product or no expansion — use original merged search
+      const dynamicK = 10;
+      searchResults = await searchDocuments(expandedQuery, {
+        k: dynamicK,
+        minSimilarity: 0.05
+      });
+
+      logger.info('Single-query search completed', {
+        userId: ctx.from?.id,
+        query: expandedQuery.substring(0, 150),
+        chunksFound: searchResults.length
+      });
+    }
 
     // Handle no results case
     if (searchResults.length === 0) {
@@ -127,7 +209,7 @@ Return ONLY the expanded keywords, one product per line. If no expansion is need
       if (leadData.email || leadData.phone) {
         try {
           const userId = ctx.from?.id || 0;
-          await processCollectedContact(userId, leadData, ctx, ctx.session.messageHistory);
+          await processCollectedContact(userId, leadData, ctx);
           ctx.session.leadCollected = true;
         } catch (e) {
           logger.warn('Failed to send lead from empty search', { error: e });
@@ -201,33 +283,57 @@ Return ONLY the expanded keywords, one product per line. If no expansion is need
         // Ask LLM to summarize the cart from the order interaction
         try {
           const cartPrompt = `
-You are an extracting assistant.
-Given the following conversation between the user and our store assistant, extract the final list of products the user wants to buy.
-Include brand, model, quantity, and price if discussed.
-Format as a clean, simple list without introductory text.
+You are a cart extraction assistant.
+Extract ONLY the products that the USER explicitly asked for AND confirmed in this conversation.
 
-Conversation Context:
-${JSON.stringify(messages.slice(-6))}`;
+CRITICAL RULES:
+1. Include ONLY items the user clearly requested (e.g. "возьми 5", "добавь", "оформи", "да" in response to a specific product offer).
+2. DO NOT include products that were only mentioned by the assistant as suggestions or search results.
+3. DO NOT invent or add any items not explicitly chosen by the user.
+4. Use the following simple and clean format for each item. DO NOT use markdown like ** or *:
+   ➖ Название товара
+      Количество шт × Цена₽
+
+5. Example of correct output:
+   ➖ MAKITA DHR165Z
+      5 шт × 13,580₽
+   
+   ➖ Лопата совковая
+      2 шт × 250₽
+
+6. IF NO ITEMS WERE SELECTED (e.g., the user just asked for a manager callback), RETURN EXACTLY THIS STRING AND NOTHING ELSE: EMPTY_CART
+
+Conversation (last messages only):
+${JSON.stringify(messages.slice(-10))}`;
 
           const cartResponse = await llmProvider.generateResponse({
             messages: [{ role: 'user', content: cartPrompt }],
-            systemPrompt: 'You extract precise item lists from sales conversations.',
-            maxTokens: 200
+            systemPrompt: 'You extract compact product lists. Only include what the user explicitly confirmed.',
+            maxTokens: 250
           });
 
-          (ctx.session as any).cart = cartResponse.content.trim();
-          logger.info('Cart generated successfully', { cart: (ctx.session as any).cart });
+          const rawCart = cartResponse.content.trim();
+          if (rawCart.includes('EMPTY_CART') || rawCart === '') {
+            (ctx.session as any).cart = undefined;
+            logger.info('Cart generated as empty (likely callback request)');
+          } else {
+            // Append manager clarification message
+            (ctx.session as any).cart = calculateCartTotal(rawCart);
+            logger.info('Cart generated successfully', { cart: (ctx.session as any).cart });
+          }
         } catch (cartErr) {
           logger.warn('Failed to generate cart summary, using fallback', { error: cartErr });
           (ctx.session as any).cart = 'Товары по диалогу (требует уточнения менеджером)';
         }
 
-        // Reply with the confirmation text (without the trigger)
-        if (response.length > 0) {
-          await ctx.reply(response.substring(0, 4000));
+        // If the LLM generated a friendly response (like "Конечно, переключаю на менеджера"), 
+        // save it to session so the lead flow can use it as the greeting.
+        if (response) {
+          (ctx.session as any).leadGreeting = response;
         }
 
-        // Enter the lead collection flow to finalize the order
+        // Enter the lead collection flow — it will show the cart and ask for phone.
+        // We do NOT send a separate reply here to avoid duplicate messages.
         await ctx.conversation.enter('leadCollectionFlow');
         return; // Break out representing end of message-handling for this turn
       }
@@ -246,12 +352,16 @@ ${JSON.stringify(messages.slice(-6))}`;
         error: error instanceof Error ? error.message : String(error)
       });
 
-      // Fallback to Phase 2 behavior (RAG without LLM)
-      response = `Найденная информация:\n\n${ragContext}`;
+      // Fallback: show friendly error instead of raw RAG data
+      await ctx.reply(
+        'Извините, сейчас возникли технические трудности. Попробуйте повторить запрос через несколько секунд.\n\n' +
+        'Если проблема повторяется — оставьте свой номер телефона, и наш менеджер свяжется с вами!'
+      );
+      return;
     }
 
-    // Send response
-    await ctx.reply(response.substring(0, 4000));  // Telegram limit
+    // Send response (smart truncation to avoid cutting mid-sentence)
+    await ctx.reply(smartTruncate(response, 4000));  // Telegram limit is 4096
 
     // Update conversation history (last 10 turns only)
     const updatedHistory = [
@@ -277,7 +387,7 @@ ${JSON.stringify(messages.slice(-6))}`;
         try {
           // Forward to admin via selected transport
           const userId = ctx.from?.id || 0;
-          await processCollectedContact(userId, leadData, ctx, ctx.session.messageHistory);
+          await processCollectedContact(userId, leadData, ctx);
 
           await webhookService.send({
             event_type: 'lead_collected',

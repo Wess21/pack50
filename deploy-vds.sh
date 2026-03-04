@@ -108,16 +108,6 @@ if [ ! -f ".env" ]; then
     echo ""
     read -p "Enter Telegram Bot Token: " BOT_TOKEN
     echo ""
-    read -p "Enter Anthropic API Key (optional, press Enter to skip): " ANTHROPIC_API_KEY
-    read -p "Enter OpenAI API Key (optional, press Enter to skip): " OPENAI_API_KEY
-    echo ""
-    read -p "Enter Webhook URL (optional, for production webhook mode): " WEBHOOK_URL
-
-    if [ -n "$WEBHOOK_URL" ]; then
-        WEBHOOK_SECRET=$(openssl rand -hex 32)
-    else
-        WEBHOOK_SECRET=""
-    fi
 
     # Create .env file
     cat > .env << EOF
@@ -129,17 +119,9 @@ BOT_TOKEN=$BOT_TOKEN
 # Database Configuration (auto-generated)
 DB_PASSWORD=$DB_PASSWORD
 
-# AI Configuration
-ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
-OPENAI_API_KEY=$OPENAI_API_KEY
-
 # Application Configuration
 NODE_ENV=production
 PORT=3000
-
-# Webhook Configuration
-WEBHOOK_URL=$WEBHOOK_URL
-WEBHOOK_SECRET=$WEBHOOK_SECRET
 
 # Admin Panel Security (auto-generated)
 ENCRYPTION_KEY=$ENCRYPTION_KEY
@@ -201,15 +183,12 @@ fi
 
 echo ""
 
-# Step 7: Stop existing containers (if any)
-print_info "Step 7: Stopping existing containers..."
-docker compose -f docker-compose.prod.yml down 2>/dev/null || true
-print_success "Old containers stopped"
-
+# Step 7: Preserve existing containers for zero-downtime deploy
+print_info "Step 7: Preserving existing containers for zero-downtime deploy..."
 echo ""
 
 # Step 8: Start new containers
-print_info "Step 8: Starting new containers..."
+print_info "Step 8: Starting new containers (Docker will automatically recreate changed ones)..."
 if docker compose -f docker-compose.prod.yml up -d; then
     print_success "Containers started"
 else

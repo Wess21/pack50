@@ -16,7 +16,7 @@ services:
     networks:
       - pack50_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U pack50"]
+      test: [ "CMD-SHELL", "pg_isready -U pack50" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -37,7 +37,7 @@ services:
     networks:
       - pack50_network
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -59,12 +59,8 @@ services:
       BOT_TOKEN: ${BOT_TOKEN}
       DATABASE_URL: postgresql://pack50:${DB_PASSWORD}@postgres:5432/pack50
       REDIS_URL: redis://redis:6379
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
       NODE_ENV: production
       PORT: 3000
-      WEBHOOK_URL: ${WEBHOOK_URL}
-      WEBHOOK_SECRET: ${WEBHOOK_SECRET}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       JWT_SECRET: ${JWT_SECRET}
       DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD}
@@ -85,6 +81,7 @@ services:
 volumes:
   postgres_data:
   redis_data:
+
 
 networks:
   pack50_network:

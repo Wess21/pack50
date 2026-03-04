@@ -1,4 +1,4 @@
-import { InlineKeyboard } from 'grammy';
+import { InlineKeyboard, Keyboard } from 'grammy';
 import type { Conversation } from '@grammyjs/conversations';
 import type { MyContext } from '../../types/context.js';
 import { extractDataFromMessage } from '../../api/services/data-extraction.js';
@@ -59,14 +59,55 @@ export async function leadCollectionFlow(
   // Check if there is an active order cart
   const cart = await conversation.external(async () => ctx.session.cart);
   if (cart) {
-    greetingMsg = `Ваш заказ:\n\n${cart}\n\nДля передачи заявки менеджеру, пожалуйста, напишите ваш контактный номер телефона:`;
+    greetingMsg = `Ваш заказ:\n\n${cart}\n\nДля передачи заявки менеджеру, пожалуйста, укажите ваш контактный номер телефона:`;
   }
 
-  logger.info('Sending greeting message', { userId: ctx.from?.id, greetingMsg });
+  // Prepend LLM's response if available (e.g., "Конечно, перевожу на менеджера!")
+  const leadGreeting = await conversation.external(async () => {
+    const lg = (ctx.session as any).leadGreeting;
+    (ctx.session as any).leadGreeting = undefined; // clear it
+    return lg;
+  });
+
+  if (leadGreeting) {
+    greetingMsg = `${leadGreeting}\n\n${greetingMsg}`;
+  }
+
+  // Check if user already has a phone in session — if so, ask which to use
+  const existingPhone = await conversation.external(async () => ctx.session.leadData?.phone);
+  if (existingPhone) {
+    const maskedPhone = existingPhone.replace(/(\d{1})(\d{3})(\d{3})(\d+)/, '$1($2)$3-$4');
+    const useExistingKeyboard = new InlineKeyboard()
+      .text(`📞 Использовать ${maskedPhone}`, 'use_existing_phone')
+      .text('✏️ Указать другой', 'enter_new_phone');
+
+    await ctx.reply(`У вас уже есть сохранённый номер: ${maskedPhone}\n\u041aакой использовать?`, { reply_markup: useExistingKeyboard });
+
+    const existingPhoneCtx = await conversation.waitFor('callback_query:data');
+    await existingPhoneCtx.answerCallbackQuery();
+
+    if (existingPhoneCtx.callbackQuery.data === 'use_existing_phone') {
+      // Phone already in session — skip collection loop
+      logger.info('User chose existing phone', { userId: ctx.from?.id, phone: existingPhone });
+    } else {
+      // User wants to enter a different number — clear existing phone
+      await conversation.external(async () => {
+        ctx.session.leadData = { ...ctx.session.leadData, phone: undefined };
+      });
+    }
+  }
+
+  logger.info('Sending greeting message', { userId: ctx.from?.id });
+
+  // Reply keyboard with "Share phone" button — shown when asking for phone
+  const sharePhoneKeyboard = new Keyboard()
+    .requestContact('📱 Поделиться номером')
+    .resized()
+    .oneTime();
 
   // Welcome message
   try {
-    await ctx.reply(greetingMsg);
+    await ctx.reply(greetingMsg, { reply_markup: sharePhoneKeyboard });
     logger.info('Greeting message sent successfully', { userId: ctx.from?.id });
   } catch (err) {
     logger.error('Failed to send greeting message', { userId: ctx.from?.id, error: err });
@@ -83,28 +124,36 @@ export async function leadCollectionFlow(
 
   // Loop until lead is complete
   while (true) {
-    // Check if lead is already complete (might be set from previous iteration)
-    const complete = await conversation.external(async () => {
-      return isLeadComplete(ctx.session.leadData);
-    });
-
-    if (complete) {
-      break;
-    }
+    const complete = await conversation.external(async () => isLeadComplete(ctx.session.leadData));
+    if (complete) break;
 
     logger.info('Waiting for user contact information...', { userId: ctx.from?.id });
-    // Wait for user message
-    const msgCtx = await conversation.waitFor('message:text');
-    logger.info('Received user contact message', { userId: ctx.from?.id, text: msgCtx.message.text });
 
-    // Extract data from message (wrapped in external to avoid replay)
-    logger.info('Extracting data from message...', { userId: ctx.from?.id, text: msgCtx.message.text });
+    // Accept both typed text and Telegram "Share Contact" button
+    const msgCtx = await conversation.waitFor(['message:text', 'message:contact']);
+
+    let phoneFromContact: string | undefined;
+    let textInput: string = '';
+
+    if (msgCtx.message?.contact) {
+      // Telegram native contact share
+      const rawPhone = msgCtx.message.contact.phone_number || '';
+      phoneFromContact = rawPhone.startsWith('+') ? rawPhone : '+' + rawPhone;
+      textInput = phoneFromContact;
+      logger.info('Received contact share', { userId: ctx.from?.id, phone: phoneFromContact });
+    } else {
+      textInput = msgCtx.message?.text || '';
+      logger.info('Received user contact message', { userId: ctx.from?.id, text: textInput });
+    }
+
+    // Extract data from message
     const extracted = await conversation.external(async () => {
       try {
-        const result = await extractDataFromMessage(
-          msgCtx.message.text,
-          ctx.session.leadData
-        );
+        if (phoneFromContact) {
+          // Direct phone from contact share — no need for LLM extraction
+          return { phone: phoneFromContact };
+        }
+        const result = await extractDataFromMessage(textInput, ctx.session.leadData);
         logger.info('Extraction result received', { userId: ctx.from?.id, result });
         return result;
       } catch (err) {
@@ -115,50 +164,34 @@ export async function leadCollectionFlow(
 
     // Update session with extracted data
     await conversation.external(async () => {
-      ctx.session.leadData = {
-        ...ctx.session.leadData,
-        ...extracted,
-      };
-
-      // Add user message to history
+      ctx.session.leadData = { ...ctx.session.leadData, ...extracted };
       ctx.session.messageHistory.push({
         role: 'user',
-        content: msgCtx.message.text,
+        content: textInput,
         timestamp: new Date(),
       });
-
       ctx.session.lastActivityAt = new Date();
     });
 
-    // Manage conversation context (summarize if needed)
+    // Manage conversation context
     await conversation.external(async () => {
       const managed = await manageConversationContext(ctx.session);
       ctx.session.conversationSummary = managed.summary;
     });
 
-    // Determine next question based on missing fields
     const leadData = await conversation.external(async () => ctx.session.leadData);
 
-    let nextQuestion: string;
-
     if (!leadData.phone) {
-      nextQuestion = 'Оставьте, пожалуйста, ваш контактный номер телефона для оформления заказа.';
+      const nextQuestion = 'Оставьте, пожалуйста, ваш контактный номер телефона для оформления заказа.';
+      await ctx.reply(nextQuestion, { reply_markup: sharePhoneKeyboard });
+      await conversation.external(async () => {
+        ctx.session.messageHistory.push({ role: 'assistant', content: nextQuestion, timestamp: new Date() });
+      });
     } else {
-      // All necessary data (just phone) collected
+      // Phone collected — remove the reply keyboard
+      await ctx.reply('Спасибо! Номер получен.', { reply_markup: { remove_keyboard: true } });
       break;
     }
-
-    // Send next question
-    await msgCtx.reply(nextQuestion);
-
-    // Add assistant message to history
-    await conversation.external(async () => {
-      ctx.session.messageHistory.push({
-        role: 'assistant',
-        content: nextQuestion,
-        timestamp: new Date(),
-      });
-    });
   }
 
   // All data collected - move to confirmation state
@@ -171,7 +204,8 @@ export async function leadCollectionFlow(
   // Show confirmation message with inline keyboard
   const confirmKeyboard = new InlineKeyboard()
     .text('✓ Подтвердить', 'confirm_lead')
-    .text('✗ Начать заново', 'edit_lead');
+    .text('✏️ Изменить', 'change_lead')
+    .text('✗ Отменить', 'edit_lead');
 
   const confirmationCart = await conversation.external(async () => ctx.session.cart);
   let confirmationMessage = `Пожалуйста, проверьте информацию:\n\n`;
@@ -201,12 +235,22 @@ export async function leadCollectionFlow(
         confirmed = true;
         finalCtx = responseCtx;
         break;
+      } else if (responseCtx.callbackQuery.data === 'change_lead') {
+        // Edit mode: keep cart, exit to RAG handler so user can describe changes
+        await conversation.external(async () => {
+          ctx.session.conversationState = 'idle';
+        });
+        await ctx.reply('Хорошо! Опишите, что нужно изменить в заказе — я скорректирую и снова предложу оформить.');
+        return;
       } else if (responseCtx.callbackQuery.data === 'edit_lead') {
-        // Restart conversation by clearing data
+        // Full cancel: clear cart and all data
         await conversation.external(async () => {
           ctx.session.leadData = {};
+          ctx.session.cart = undefined;
+          ctx.session.conversationState = 'idle';
+          (ctx.session as any).hasRequestedContacts = false;
         });
-        await ctx.reply('Хорошо, давайте начнем заново. Используйте /start или просто напишите ваше имя.');
+        await ctx.reply('Заявка отменена. Напишите новый запрос.');
         return;
       }
     }
@@ -224,8 +268,40 @@ export async function leadCollectionFlow(
         return; // Exit conversation
       }
 
-      // If they type something else, just re-ask for the button click
-      await responseCtx.reply('Пожалуйста, подтвердите заявку нажатием на кнопку "Подтвердить" или "Начать заново".');
+      // Check if user wants to fully cancel OR just edit one item
+      const fullCancelKeywords = ['отмена', 'отменить', 'нет', 'начать заново', 'все заново'];
+      const editKeywords = ['убрать', 'изменить', 'поменять', 'убери', 'удали', 'удалить', 'хочу изменить', 'переделать', 'скорректировать'];
+      const lowerText = text.toLowerCase();
+
+      const wantsFullCancel = fullCancelKeywords.some(kw => lowerText.includes(kw));
+      const wantsEdit = editKeywords.some(kw => lowerText.includes(kw));
+
+      if (wantsFullCancel) {
+        // Full cancel: clear everything
+        await conversation.external(async () => {
+          ctx.session.leadData = {};
+          ctx.session.cart = undefined;
+          ctx.session.conversationState = 'idle';
+        });
+        await ctx.reply('Хорошо, заявка полностью отменена. Напишите новый запрос.');
+        return;
+      }
+
+      if (wantsEdit) {
+        // Edit mode: keep the cart in session but exit confirmation so RAG handler can process
+        // the edit request. The user can describe what to change, bot will reply via RAG.
+        await conversation.external(async () => {
+          ctx.session.conversationState = 'idle';
+          // Keep ctx.session.cart so the RAG handler can use it as context
+        });
+        await ctx.reply(
+          'Понял, выхожу из подтверждения. Опишите, что нужно изменить — я скорректирую заказ и снова предложу оформить.'
+        );
+        return;
+      }
+
+      // Otherwise, remind them to use the buttons
+      await responseCtx.reply('Пожалуйста, нажмите кнопку «✓ Подтвердить» или «✗ Начать заново».');
       retryCount++;
     }
   }
@@ -255,7 +331,7 @@ export async function leadCollectionFlow(
         await updateConversationLeadData(conv.id, ctx.session.leadData);
 
         const finalAdditionalInfo = ctx.session.cart
-          ? `Корзина клиента:\n${ctx.session.cart}\n\nДоп. инфо: ${ctx.session.leadData.additional_info || ''}`
+          ? `Корзина клиента:\n${ctx.session.cart}`
           : (ctx.session.leadData.additional_info || '');
 
         // Update the session lead data so the notification service gets the cart!
@@ -305,6 +381,8 @@ export async function leadCollectionFlow(
       ctx.session.conversationState = 'idle';
       ctx.session.leadData = {};
       ctx.session.messageHistory = [];
+      ctx.session.cart = undefined;
+      (ctx.session as any).hasRequestedContacts = false;
       ctx.session.lastActivityAt = new Date();
     });
 

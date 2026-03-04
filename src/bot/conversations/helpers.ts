@@ -1,12 +1,6 @@
-import Anthropic from '@anthropic-ai/sdk';
 import type { SessionData } from '../../types/session.js';
-import { env } from '../../config/env.js';
 import { logger } from '../../utils/logger.js';
-
-// Initialize Anthropic client for summarization
-const anthropic = new Anthropic({
-  apiKey: env.ANTHROPIC_API_KEY,
-});
+import { createLLMProvider } from '../../services/llm/provider-factory.js';
 
 // Maximum messages to keep in active context
 const MAX_CONTEXT_MESSAGES = 10;
@@ -53,35 +47,31 @@ export async function manageConversationContext(session: SessionData): Promise<M
       oldMessages: oldMessages.length,
     });
 
-    // Try LLM summarization if API key is available
-    if (env.ANTHROPIC_API_KEY) {
-      try {
-        const formattedMessages = oldMessages
-          .map((msg) => `${msg.role}: ${msg.content}`)
-          .join('\n');
+    // Try dynamic LLM summarization
+    try {
+      const llmProvider = await createLLMProvider();
+      const formattedMessages = oldMessages
+        .map((msg) => `${msg.role}: ${msg.content}`)
+        .join('\n');
 
-        const response = await anthropic.messages.create({
-          model: 'claude-3-5-sonnet-latest',
-          max_tokens: 200,
-          messages: [
-            {
-              role: 'user',
-              content: `Summarize the key points and context from this conversation concisely (2-3 sentences):\n\n${formattedMessages}`,
-            },
-          ],
-        });
+      const response = await llmProvider.generateResponse({
+        messages: [
+          {
+            role: 'user',
+            content: `Summarize the key points and context from this conversation concisely (2-3 sentences):\n\n${formattedMessages}`,
+          },
+        ],
+        systemPrompt: 'You are a concise summarizer.',
+        maxTokens: 200,
+      });
 
-        const content = response.content[0];
-        if (content.type === 'text') {
-          summary = content.text.trim();
-          logger.debug('Summary generated via LLM', { summary });
-        }
-      } catch (error) {
-        logger.warn('Failed to generate conversation summary via LLM', {
-          error: error instanceof Error ? error.message : String(error),
-        });
-        // Fall through to simple summary
-      }
+      summary = response.content.trim();
+      logger.debug('Summary generated via dynamic LLM', { summary });
+    } catch (error) {
+      logger.warn('Failed to generate conversation summary via LLM', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      // Fall through to simple summary
     }
 
     // Fallback: simple message count summary (when no API key or LLM failed)
