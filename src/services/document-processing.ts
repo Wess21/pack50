@@ -85,29 +85,38 @@ export async function processPDF(
     const totalBytes = allChunks.reduce((s, c) => s + Buffer.byteLength(c.text, 'utf8'), 0);
     await upsertDocument(filename, 'pdf', allChunks.length, totalBytes);
 
-    // 5. Store chunks in database
+    // 5. Store chunks in database in batches
     const timestamp = new Date().toISOString();
+    const batchSize = 50;
 
-    for (let i = 0; i < allChunks.length; i++) {
-      const chunk = allChunks[i];
-      const embedding = embeddings[i];
+    for (let i = 0; i < allChunks.length; i += batchSize) {
+      const batch = allChunks.slice(i, i + batchSize);
 
-      await db.query(
-        `INSERT INTO document_chunks (content, embedding, metadata)
-         VALUES ($1, $2, $3)`,
-        [
-          chunk.text,
-          JSON.stringify(embedding),  // pgvector accepts array as JSON
-          JSON.stringify({
-            source: filename,
-            page: chunk.page,
-            doc_type: 'pdf',
-            uploaded_at: timestamp,
-            chunk_index: i,
-            job_id: jobId
-          })
-        ]
-      );
+      // Yield strictly before each DB batch to prevent timeout
+      await new Promise<void>(resolve => setImmediate(resolve));
+
+      const queries = batch.map((chunk, idx) => {
+        const globalIdx = i + idx;
+        const embedding = embeddings[globalIdx];
+        return db.query(
+          `INSERT INTO document_chunks (content, embedding, metadata)
+           VALUES ($1, $2, $3)`,
+          [
+            chunk.text,
+            JSON.stringify(embedding),  // pgvector accepts array as JSON
+            JSON.stringify({
+              source: filename,
+              page: chunk.page,
+              doc_type: 'pdf',
+              uploaded_at: timestamp,
+              chunk_index: globalIdx,
+              job_id: jobId
+            })
+          ]
+        );
+      });
+
+      await Promise.all(queries);
     }
 
     logger.info('PDF processing complete', {
@@ -152,24 +161,32 @@ export async function processDOCX(
     await upsertDocument(filename, 'docx', chunks.length, totalBytes);
 
     const timestamp = new Date().toISOString();
+    const batchSize = 50;
 
-    for (let i = 0; i < chunks.length; i++) {
-      await db.query(
-        `INSERT INTO document_chunks (content, embedding, metadata)
-         VALUES ($1, $2, $3)`,
-        [
-          chunks[i].text,
-          JSON.stringify(embeddings[i]),
-          JSON.stringify({
-            source: filename,
-            page: null,  // DOCX doesn't have page numbers
-            doc_type: 'docx',
-            uploaded_at: timestamp,
-            chunk_index: i,
-            job_id: jobId
-          })
-        ]
-      );
+    for (let i = 0; i < chunks.length; i += batchSize) {
+      const batch = chunks.slice(i, i + batchSize);
+      await new Promise<void>(resolve => setImmediate(resolve));
+
+      const queries = batch.map((chunk, idx) => {
+        const globalIdx = i + idx;
+        return db.query(
+          `INSERT INTO document_chunks (content, embedding, metadata)
+           VALUES ($1, $2, $3)`,
+          [
+            chunk.text,
+            JSON.stringify(embeddings[globalIdx]),
+            JSON.stringify({
+              source: filename,
+              page: null,  // DOCX doesn't have page numbers
+              doc_type: 'docx',
+              uploaded_at: timestamp,
+              chunk_index: globalIdx,
+              job_id: jobId
+            })
+          ]
+        );
+      });
+      await Promise.all(queries);
     }
 
     logger.info('DOCX processing complete', {
@@ -213,24 +230,32 @@ export async function processURL(
     await upsertDocument(url, 'url', chunks.length, totalBytes);
 
     const timestamp = new Date().toISOString();
+    const batchSize = 50;
 
-    for (let i = 0; i < chunks.length; i++) {
-      await db.query(
-        `INSERT INTO document_chunks (content, embedding, metadata)
-         VALUES ($1, $2, $3)`,
-        [
-          chunks[i].text,
-          JSON.stringify(embeddings[i]),
-          JSON.stringify({
-            source: url,
-            page: null,
-            doc_type: 'url',
-            uploaded_at: timestamp,
-            chunk_index: i,
-            job_id: jobId
-          })
-        ]
-      );
+    for (let i = 0; i < chunks.length; i += batchSize) {
+      const batch = chunks.slice(i, i + batchSize);
+      await new Promise<void>(resolve => setImmediate(resolve));
+
+      const queries = batch.map((chunk, idx) => {
+        const globalIdx = i + idx;
+        return db.query(
+          `INSERT INTO document_chunks (content, embedding, metadata)
+           VALUES ($1, $2, $3)`,
+          [
+            chunk.text,
+            JSON.stringify(embeddings[globalIdx]),
+            JSON.stringify({
+              source: url,
+              page: null,
+              doc_type: 'url',
+              uploaded_at: timestamp,
+              chunk_index: globalIdx,
+              job_id: jobId
+            })
+          ]
+        );
+      });
+      await Promise.all(queries);
     }
 
     logger.info('URL processing complete', {
@@ -275,24 +300,32 @@ export async function processTXT(
     await upsertDocument(filename, 'txt', chunks.length, totalBytes);
 
     const timestamp = new Date().toISOString();
+    const batchSize = 50;
 
-    for (let i = 0; i < chunks.length; i++) {
-      await db.query(
-        `INSERT INTO document_chunks (content, embedding, metadata)
-         VALUES ($1, $2, $3)`,
-        [
-          chunks[i].text,
-          JSON.stringify(embeddings[i]),
-          JSON.stringify({
-            source: filename,
-            page: null,
-            doc_type: 'txt',
-            uploaded_at: timestamp,
-            chunk_index: i,
-            job_id: jobId
-          })
-        ]
-      );
+    for (let i = 0; i < chunks.length; i += batchSize) {
+      const batch = chunks.slice(i, i + batchSize);
+      await new Promise<void>(resolve => setImmediate(resolve));
+
+      const queries = batch.map((chunk, idx) => {
+        const globalIdx = i + idx;
+        return db.query(
+          `INSERT INTO document_chunks (content, embedding, metadata)
+           VALUES ($1, $2, $3)`,
+          [
+            chunk.text,
+            JSON.stringify(embeddings[globalIdx]),
+            JSON.stringify({
+              source: filename,
+              page: null,
+              doc_type: 'txt',
+              uploaded_at: timestamp,
+              chunk_index: globalIdx,
+              job_id: jobId
+            })
+          ]
+        );
+      });
+      await Promise.all(queries);
     }
 
     logger.info('TXT processing complete', {
@@ -337,24 +370,32 @@ export async function processXLSX(
     await upsertDocument(filename, 'xlsx', chunks.length, totalBytes);
 
     const timestamp = new Date().toISOString();
+    const batchSize = 50;
 
-    for (let i = 0; i < chunks.length; i++) {
-      await db.query(
-        `INSERT INTO document_chunks (content, embedding, metadata)
-         VALUES ($1, $2, $3)`,
-        [
-          chunks[i].text,
-          JSON.stringify(embeddings[i]),
-          JSON.stringify({
-            source: filename,
-            page: null,
-            doc_type: 'xlsx',
-            uploaded_at: timestamp,
-            chunk_index: i,
-            job_id: jobId
-          })
-        ]
-      );
+    for (let i = 0; i < chunks.length; i += batchSize) {
+      const batch = chunks.slice(i, i + batchSize);
+      await new Promise<void>(resolve => setImmediate(resolve));
+
+      const queries = batch.map((chunk, idx) => {
+        const globalIdx = i + idx;
+        return db.query(
+          `INSERT INTO document_chunks (content, embedding, metadata)
+           VALUES ($1, $2, $3)`,
+          [
+            chunk.text,
+            JSON.stringify(embeddings[globalIdx]),
+            JSON.stringify({
+              source: filename,
+              page: null,
+              doc_type: 'xlsx',
+              uploaded_at: timestamp,
+              chunk_index: globalIdx,
+              job_id: jobId
+            })
+          ]
+        );
+      });
+      await Promise.all(queries);
     }
 
     logger.info('XLSX processing complete', { jobId, chunksCreated: chunks.length });
