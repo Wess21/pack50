@@ -13,9 +13,9 @@ const __dirname = dirname(__filename);
 // Create PostgreSQL connection pool
 export const db = new Pool({
   connectionString: env.DATABASE_URL,
-  max: 20,
+  max: 40,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  connectionTimeoutMillis: 10000,
 });
 
 // Export pool as alias for backwards compatibility

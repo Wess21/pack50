@@ -47,10 +47,11 @@ export async function searchDocuments(
   const queryEmbedding = await embedText(query);
 
   // 2. Build Hybrid SQL — fetch candidates from both Vector Search and FTS
-  const CANDIDATES = Math.max(k * 5, 50);
+  const CANDIDATES = Math.max(k * 3, 20); // Reduced batch size for faster sorting
 
   let vectorWhere = `1 - (embedding <=> $1::vector) >= ${minSimilarity}`;
-  let ftsWhere = `to_tsvector('russian', content) @@ websearch_to_tsquery('russian', $2)`;
+  // Use the pre-computed FTS generated index instead of doing it on the fly
+  let ftsWhere = `content_tsvector @@ websearch_to_tsquery('russian', $2)`;
 
   // Convert natural language query into an "OR" search for Postgres FTS
   // e.g. "какие есть шуруповерты" -> "какие OR есть OR шуруповерты"

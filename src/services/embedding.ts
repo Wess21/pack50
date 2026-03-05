@@ -33,6 +33,10 @@ export async function embedText(text: string): Promise<number[]> {
 
   const pipeline = await getEmbeddingPipeline();
 
+  // Yield to the event loop right before executing CPU-heavy Xenova pipeline
+  // This ensures concurrent users' HTTP requests and database keep-alives can process!
+  await new Promise<void>(resolve => setImmediate(resolve));
+
   // Generate embedding
   const output = await pipeline(text, {
     pooling: 'mean',      // Mean pooling over token embeddings
