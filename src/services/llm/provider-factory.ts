@@ -4,7 +4,6 @@ import { LLMProvider, ModelName } from './types.js';
 import { AnthropicProvider } from './anthropic-provider.js';
 import { OpenAIProvider } from './openai-provider.js';
 import { logger } from '../../utils/logger.js';
-import { env } from '../../config/env.js';
 
 /**
  * Map model names to provider types
@@ -100,11 +99,8 @@ export async function createLLMProvider(): Promise<LLMProvider> {
           config.encryption_iv
         );
         logger.info('Using Anthropic API key from database');
-      } else if (env.ANTHROPIC_API_KEY) {
-        apiKey = env.ANTHROPIC_API_KEY;
-        logger.warn('Using Anthropic API key from .env (not in database)');
       } else {
-        throw new Error('No Anthropic API key configured');
+        throw new Error('No Anthropic API key configured in database');
       }
 
       if (config.api_base_url) {
@@ -125,11 +121,8 @@ export async function createLLMProvider(): Promise<LLMProvider> {
       if (config.openai_api_key_encrypted && config.encryption_iv) {
         apiKey = decryptApiKey(config.openai_api_key_encrypted, config.encryption_iv);
         logger.info('Using OpenAI API key from database');
-      } else if (env.OPENAI_API_KEY) {
-        apiKey = env.OPENAI_API_KEY;
-        logger.warn('Using OpenAI API key from .env (not in database)');
       } else {
-        throw new Error('No OpenAI API key configured');
+        throw new Error('No OpenAI API key configured in database');
       }
 
       const options: { baseURL?: string; model?: string } = {};

@@ -2,7 +2,6 @@ import axios, { AxiosInstance, AxiosError } from 'axios';
 import axiosRetry from 'axios-retry';
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from '../utils/logger.js';
-import { env } from '../config/env.js';
 
 /**
  * Webhook event types for different bot interactions
@@ -60,7 +59,7 @@ export class WebhookService {
   private webhookUrl: string | undefined;
 
   constructor(webhookUrl?: string) {
-    this.webhookUrl = webhookUrl || env.WEBHOOK_URL;
+    this.webhookUrl = webhookUrl;
 
     if (!this.webhookUrl) {
       logger.warn('WEBHOOK_URL not configured - webhook delivery disabled');

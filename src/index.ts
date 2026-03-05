@@ -1,7 +1,6 @@
 import { env } from './config/env.js';
 import { initDatabase, closeDatabase } from './db/client.js';
-import { bot, startBot, stopBot } from './bot/index.js';
-import { startWebhook } from './bot/webhook.js';
+import { startBot, stopBot } from './bot/index.js';
 import { logger } from './utils/logger.js';
 import { EmbeddingService } from './services/embedding.js';
 import express from 'express';
@@ -25,7 +24,6 @@ async function main() {
     logger.info('Environment', {
       nodeEnv: env.NODE_ENV,
       port: env.PORT,
-      webhookMode: Boolean(env.WEBHOOK_URL && env.WEBHOOK_SECRET),
     });
 
     // Initialize database schema
@@ -41,57 +39,31 @@ async function main() {
     await EmbeddingService.preloadEmbeddingModel();
     logger.info('Embedding model preloaded');
 
-    // Start bot in appropriate mode
-    if (env.WEBHOOK_URL && env.WEBHOOK_SECRET) {
-      // Production: use webhook (integrates with webhook Express app)
-      logger.info('Starting bot in webhook mode...');
-      const webhookApp = await startWebhook(bot);
+    // Start API server BEFORE bot.start() because bot.start() is blocking
+    const app = express();
+    app.use(cors());
+    app.use(express.json());
+    app.use('/api/documents', documentsRouter);
+    app.use('/api/admin', adminRouter);
+    app.use('/api/providers', providersRouter);
 
-      // Add document upload routes and admin routes to webhook app
-      webhookApp.use(cors());
-      webhookApp.use(express.json());
-      webhookApp.use('/api/documents', documentsRouter);
-      webhookApp.use('/api/admin', adminRouter);
-      webhookApp.use('/api/providers', providersRouter);
+    // Serve static files (admin panel)
+    const publicPath = path.join(__dirname, '../public');
+    app.use(express.static(publicPath));
 
-      // Serve static files
-      const publicPath = path.join(__dirname, '../public');
-      webhookApp.use(express.static(publicPath));
+    // Health check
+    app.get('/health', (_req, res) => {
+      res.json({ status: 'ok', timestamp: new Date().toISOString() });
+    });
 
-      // Health check
-      webhookApp.get('/health', (_req, res) => {
-        res.json({ status: 'ok', timestamp: new Date().toISOString() });
-      });
+    const API_PORT = env.PORT || 3000;
+    app.listen(API_PORT, () => {
+      logger.info(`API server listening on port ${API_PORT}`);
+    });
 
-      logger.info('=== Pack50 Bot Ready (Webhook Mode) ===');
-    } else {
-      // Development: use long polling + separate API server
-      // IMPORTANT: Start API server BEFORE bot.start() because bot.start() is blocking
-      const app = express();
-      app.use(cors());
-      app.use(express.json());
-      app.use('/api/documents', documentsRouter);
-      app.use('/api/admin', adminRouter);
-      app.use('/api/providers', providersRouter);
-
-      // Serve static files (admin panel)
-      const publicPath = path.join(__dirname, '../public');
-      app.use(express.static(publicPath));
-
-      // Health check
-      app.get('/health', (_req, res) => {
-        res.json({ status: 'ok', timestamp: new Date().toISOString() });
-      });
-
-      const API_PORT = env.PORT || 3000;
-      app.listen(API_PORT, () => {
-        logger.info(`API server listening on port ${API_PORT}`);
-      });
-
-      logger.info('Starting bot in long polling mode (development)...');
-      await startBot();
-      logger.info('=== Pack50 Bot Ready (Long Polling Mode) ===');
-    }
+    logger.info('Starting bot in long polling mode (production/development)...');
+    await startBot();
+    logger.info('=== Pack50 Bot Ready (Long Polling Mode) ===');
   } catch (error) {
     logger.error('Failed to start application', {
       error: error instanceof Error ? error.message : String(error),
@@ -117,12 +89,9 @@ async function shutdown() {
   }
 }
 
-// Only register shutdown handlers for long polling mode
-// Webhook mode has its own handlers in webhook.ts
-if (!env.WEBHOOK_URL || !env.WEBHOOK_SECRET) {
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
-}
+// Register shutdown handlers
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
 
 // Start application
 main();

@@ -6,13 +6,12 @@ import { ContextManager } from '../../services/context-manager.js';
 import { WebhookService } from '../../services/webhook.js';
 import { buildSystemPrompt } from '../../prompts/system-prompts.js';
 import { buildPrompt } from '../../prompts/prompt-builder.js';
-import { env } from '../../config/env.js';
 import { db } from '../../db/client.js';
 import { processCollectedContact } from '../../api/services/contact-notification.js';
 
 // Initialize services
 const contextManager = new ContextManager();
-const webhookService = new WebhookService(env.WEBHOOK_URL || '');
+const webhookService = new WebhookService('');
 
 /**
  * Smart text truncation - cuts at last complete sentence/paragraph before limit
