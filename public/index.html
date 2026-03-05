@@ -508,7 +508,26 @@
         <h2>Управление Контактами</h2>
 
         <div style="background: #f9f9f9; padding: 20px; border: 1px solid #ddd; margin-bottom: 25px;">
-          <h3 style="font-size: 15px; margin-bottom: 15px;">Настройки уведомлений</h3>
+          <h3 style="font-size: 15px; margin-bottom: 15px;">Настройки бота (Telegram Token)</h3>
+          <form id="botTokenForm">
+            <div class="grid">
+              <div class="form-group" style="grid-column: 1 / -1;">
+                <label>Telegram Bot Token</label>
+                <input type="password" id="contactBotToken" placeholder="123456789:ABCdefGHIjkl...">
+                <div class="info">Оставьте пустым, чтобы не менять текущий токен (при сохранении бот внутри системы
+                  будет перезапущен)</div>
+              </div>
+            </div>
+            <div style="display: flex; gap: 10px; margin-top: 15px;">
+              <button type="submit">Сохранить токен</button>
+              <button type="button" class="secondary" id="testBotBtn">Проверить подключение</button>
+            </div>
+            <div id="botTokenStatus" class="status hidden" style="margin-top: 15px;"></div>
+          </form>
+        </div>
+
+        <div style="background: #f9f9f9; padding: 20px; border: 1px solid #ddd; margin-bottom: 25px;">
+          <h3 style="font-size: 15px; margin-bottom: 15px;">Настройки уведомлений (куда присылать лидов)</h3>
           <form id="contactConfigForm">
             <div class="grid">
               <div class="form-group">
@@ -524,8 +543,8 @@
                 <input type="text" id="contactDestination" placeholder="example@mail.com или -100123...">
               </div>
             </div>
-            <button type="submit">Сохранить настройки</button>
-            <div id="contactConfigStatus" class="status hidden"></div>
+            <button type="submit">Сохранить настройки уведомлений</button>
+            <div id="contactConfigStatus" class="status hidden" style="margin-top: 15px;"></div>
           </form>
         </div>
 
@@ -551,6 +570,8 @@
             </tbody>
           </table>
         </div>
+        <br />
+        <div id="contactsPagination" style="display: flex; justify-content: center; gap: 8px; flex-wrap: wrap;"></div>
       </div>
 
       <!-- Settings Tab -->
@@ -625,10 +646,13 @@
       }
     }
 
-    async function loadContacts() {
+    async function loadContacts(page = 1) {
       const container = document.getElementById('contactsTableBody');
+      const pagContainer = document.getElementById('contactsPagination');
+      container.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 30px; color: #666;">Загрузка...</td></tr>';
+
       try {
-        const res = await fetch('/api/admin/contacts', {
+        const res = await fetch(`/api/admin/contacts?page=${page}&limit=20`, {
           headers: { 'Authorization': `Bearer ${authToken}` }
         });
         const data = await res.json();
@@ -636,6 +660,7 @@
 
         if (contacts.length === 0) {
           container.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 30px; color: #666;">Пока нет собранных контактов.</td></tr>';
+          pagContainer.innerHTML = '';
           return;
         }
 
@@ -647,9 +672,21 @@
             <td><pre style="margin:0; font-family:inherit; font-size:13px; white-space:pre-wrap;">${JSON.stringify(c.contact_data, null, 2)}</pre></td>
           </tr>
         `).join('');
+
+        // Render Pagination
+        const { totalPages, page: currentPage } = data.pagination;
+        let pHtml = '';
+        if (totalPages > 1) {
+          for (let i = 1; i <= totalPages; i++) {
+            pHtml += `<button onclick="loadContacts(${i})" class="${i === currentPage ? '' : 'secondary'}" style="padding: 4px 10px; font-size: 13px;">${i}</button>`;
+          }
+        }
+        pagContainer.innerHTML = pHtml;
+
       } catch (err) {
         console.error('Failed to load contacts:', err);
         container.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 30px; color: #dc3545;">Ошибка загрузки списка контактов.</td></tr>';
+        pagContainer.innerHTML = '';
       }
     }
 
@@ -865,6 +902,11 @@
 
           const elDest = document.getElementById('contactDestination');
           if (config.contact_notification_destination && elDest) elDest.value = config.contact_notification_destination;
+
+          const elBotToken = document.getElementById('contactBotToken');
+          if (config.has_bot_token && elBotToken) {
+            elBotToken.placeholder = '•••••••• (сохранен)';
+          }
           if (config.active_template) {
             const knownPersonas = ['consultant', 'support', 'orderTaker'];
             const sel = document.getElementById('personaSelect');
@@ -1175,11 +1217,16 @@
     });
 
     // Save Contact Configurations
-    document.getElementById('contactConfigForm').addEventListener('submit', async (e) => {
+    // Save Telegram Bot Token
+    document.getElementById('botTokenForm').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const status = document.getElementById('contactConfigStatus');
-      const contact_notification_transport = document.getElementById('contactTransport').value;
-      const contact_notification_destination = document.getElementById('contactDestination').value;
+      const status = document.getElementById('botTokenStatus');
+      const bot_token = document.getElementById('contactBotToken').value;
+
+      if (!bot_token) {
+        showStatus(status, 'Укажите новый токен', 'error');
+        return;
+      }
 
       try {
         const response = await fetch('/api/admin/config', {
@@ -1188,13 +1235,79 @@
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${authToken}`
           },
-          body: JSON.stringify({ contact_notification_transport, contact_notification_destination })
+          body: JSON.stringify({ bot_token })
+        });
+
+        const data = await response.json();
+        if (response.ok) {
+          showStatus(status, '✅ Токен сохранён! Бот запущен с новыми настройками.', 'success');
+          document.getElementById('contactBotToken').value = '';
+          document.getElementById('contactBotToken').placeholder = '•••••••• (сохранен)';
+        } else {
+          showStatus(status, data.error || 'Ошибка при сохранении', 'error');
+        }
+      } catch (error) {
+        showStatus(status, 'Ошибка соединения', 'error');
+      }
+    });
+
+    // Test Telegram Bot
+    document.getElementById('testBotBtn').addEventListener('click', async () => {
+      const status = document.getElementById('botTokenStatus');
+      const bot_token = document.getElementById('contactBotToken').value;
+
+      const btn = document.getElementById('testBotBtn');
+      const origText = btn.textContent;
+      btn.textContent = '⏳ Проверка...';
+      btn.disabled = true;
+
+      try {
+        const response = await fetch('/api/admin/test-bot', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`
+          },
+          body: JSON.stringify({ bot_token }) // If empty, backend will use DB token
+        });
+
+        const data = await response.json();
+        if (response.ok && data.success) {
+          showStatus(status, `✅ ${data.message}`, 'success');
+        } else {
+          showStatus(status, `❌ ${data.message || 'Ошибка'}`, 'error');
+        }
+      } catch (error) {
+        showStatus(status, 'Ошибка соединения', 'error');
+      } finally {
+        btn.textContent = origText;
+        btn.disabled = false;
+      }
+    });
+
+    // Save Contact Configurations (Transport Destination only)
+    document.getElementById('contactConfigForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const status = document.getElementById('contactConfigStatus');
+      const contact_notification_transport = document.getElementById('contactTransport').value;
+      const contact_notification_destination = document.getElementById('contactDestination').value;
+
+      const payload = { contact_notification_transport, contact_notification_destination };
+
+      try {
+        const response = await fetch('/api/admin/config', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`
+          },
+          body: JSON.stringify(payload)
         });
 
         const data = await response.json();
 
         if (response.ok) {
-          showStatus(status, 'Настройки уведомлений сохранены', 'success');
+          showStatus(status, '✅ Настройки уведомлений сохранены', 'success');
         } else {
           showStatus(status, data.error || 'Ошибка сохранения', 'error');
         }

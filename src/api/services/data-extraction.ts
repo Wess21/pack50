@@ -27,32 +27,6 @@ function extractEmail(message: string): string | undefined {
   return undefined;
 }
 
-/**
- * Extract phone number from message using regex
- */
-function extractPhone(message: string): string | undefined {
-  // First, let's try a lenient regex that looks for 10-15 consecutive digits (ignoring spaces/dashes)
-  const phonePattern = /(?:\+?)[0-9][0-9\-\s\(\)\.]{9,15}[0-9]/;
-  const match = message.match(phonePattern);
-
-  if (match) {
-    const rawMatch = match[0];
-    const digitsCount = rawMatch.replace(/\D/g, '').length;
-    if (digitsCount >= 10 && digitsCount <= 15) {
-      logger.info('Phone extracted via lenient regex', { rawMatch });
-      return rawMatch.trim();
-    }
-  }
-
-  // Very aggressive fallback: count all digits in the string
-  const allDigits = message.replace(/\D/g, '');
-  if (allDigits.length >= 10 && allDigits.length <= 15) {
-    logger.info('Phone extracted via aggressive fallback', { phone: allDigits });
-    return allDigits;
-  }
-
-  return undefined;
-}
 
 /**
  * Extract name from message using LLM or regex fallback
@@ -138,14 +112,6 @@ export async function extractDataFromMessage(
     }
   }
 
-  // Extract phone if not already present
-  if (!existingData.phone) {
-    const phone = extractPhone(message);
-    if (phone) {
-      extracted.phone = phone;
-      logger.info('Phone extracted successfully', { phone });
-    }
-  }
 
   // Extract name if missing
   // We remove the condition that completely skipped name extraction if a phone was present,

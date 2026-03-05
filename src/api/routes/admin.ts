@@ -59,15 +59,22 @@ router.post('/login', async (req, res) => {
 router.get('/config', requireAdmin, async (_req, res) => {
   try {
     const result = await db.query(
-      'SELECT active_model, active_template, greeting_message, webhook_url, api_base_url, llm_model_name, contact_notification_transport, contact_notification_destination FROM bot_config WHERE id = 1'
+      'SELECT active_model, active_template, greeting_message, webhook_url, api_base_url, llm_model_name, contact_notification_transport, contact_notification_destination, bot_token_encrypted FROM bot_config WHERE id = 1'
     );
 
-    res.json(result.rows[0] || {});
+    const config = result.rows[0] || {};
+    // Don't expose the encrypted token, just a boolean flag
+    config.has_bot_token = !!config.bot_token_encrypted;
+    delete config.bot_token_encrypted;
+
+    res.json(config);
   } catch (error: any) {
     logger.error('Get config error', { error: error.message });
     res.status(500).json({ error: 'Failed to fetch configuration' });
   }
 });
+
+import { reloadBot } from '../../bot/index.js';
 
 /**
  * PUT /api/admin/config
@@ -86,6 +93,7 @@ router.put('/config', requireAdmin, async (req: AdminRequest, res) => {
       llm_model_name,
       contact_notification_transport,
       contact_notification_destination,
+      bot_token
     } = req.body;
 
     const updates: string[] = [];
@@ -133,22 +141,35 @@ router.put('/config', requireAdmin, async (req: AdminRequest, res) => {
     }
 
     // Encrypt API keys if provided
+    let needsIv = false;
+    let fallbackIv: string | null = null;
+
+    if (bot_token) {
+      const { encrypted, iv } = encryptApiKey(bot_token);
+      updates.push(`bot_token_encrypted = $${paramIndex++}`);
+      updates.push(`bot_token_iv = $${paramIndex++}`);
+      values.push(encrypted, iv);
+    }
+
     if (anthropic_api_key) {
       const { encrypted, iv } = encryptApiKey(anthropic_api_key);
       updates.push(`anthropic_api_key_encrypted = $${paramIndex++}`);
-      updates.push(`encryption_iv = $${paramIndex++}`);
-      values.push(encrypted, iv);
+      needsIv = true;
+      fallbackIv = iv;
+      values.push(encrypted);
     }
 
     if (openai_api_key) {
       const { encrypted, iv } = encryptApiKey(openai_api_key);
       updates.push(`openai_api_key_encrypted = $${paramIndex++}`);
       values.push(encrypted);
-      // Add IV if not already added by anthropic key
-      if (!anthropic_api_key) {
-        updates.push(`encryption_iv = $${paramIndex++}`);
-        values.push(iv);
-      }
+      if (!fallbackIv) fallbackIv = iv;
+      needsIv = true;
+    }
+
+    if (needsIv) {
+      updates.push(`encryption_iv = $${paramIndex++}`);
+      values.push(fallbackIv);
     }
 
     if (updates.length === 0) {
@@ -168,10 +189,52 @@ router.put('/config', requireAdmin, async (req: AdminRequest, res) => {
       fields: updates.join(', '),
     });
 
+    // Reload the bot if the bot_token was updated
+    if (bot_token) {
+      // Run asynchronously so we don't block the response
+      reloadBot().catch(e => logger.error('Failed to reload bot after token update', { error: e.message }));
+    }
+
     res.json({ success: true });
   } catch (error: any) {
     logger.error('Update config error', { error: error.message });
     res.status(500).json({ error: 'Failed to update configuration' });
+  }
+});
+
+/**
+ * POST /api/admin/test-bot
+ * Protected - test telegram bot token
+ */
+router.post('/test-bot', requireAdmin, async (req, res) => {
+  try {
+    const { bot_token } = req.body;
+    let tokenToTest = bot_token;
+
+    if (!tokenToTest) {
+      // Fetch from DB if not provided
+      const configResult = await db.query('SELECT bot_token_encrypted, bot_token_iv FROM bot_config WHERE id = 1');
+      if (configResult.rows.length === 0 || !configResult.rows[0].bot_token_encrypted) {
+        res.status(400).json({ success: false, message: 'Токен не передан и не сохранен в базе' });
+        return;
+      }
+      tokenToTest = decryptApiKey(configResult.rows[0].bot_token_encrypted, configResult.rows[0].bot_token_iv);
+    }
+
+    const response = await fetch(`https://api.telegram.org/bot${tokenToTest}/getMe`);
+    const data = await response.json() as any;
+
+    if (data.ok) {
+      res.json({ success: true, message: `Подключение успешно. Бот: @${data.result.username}` });
+      return;
+    } else {
+      res.status(400).json({ success: false, message: 'Неверный токен Telegram бота' });
+      return;
+    }
+  } catch (error: any) {
+    logger.error('Bot token test failed', { error: error.message });
+    res.status(500).json({ success: false, message: 'Ошибка соединения с Telegram API' });
+    return;
   }
 });
 
@@ -252,12 +315,29 @@ router.get('/analytics', requireAdmin, async (req, res) => {
  * GET /api/admin/contacts
  * Protected - list collected contacts
  */
-router.get('/contacts', requireAdmin, async (_req, res) => {
+router.get('/contacts', requireAdmin, async (req, res) => {
   try {
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 20;
+    const offset = (page - 1) * limit;
+
+    const countResult = await db.query('SELECT COUNT(*) FROM collected_contacts');
+    const total = parseInt(countResult.rows[0].count);
+
     const result = await db.query(
-      'SELECT id, user_id, contact_data, created_at FROM collected_contacts ORDER BY created_at DESC LIMIT 100'
+      'SELECT id, user_id, contact_data, created_at FROM collected_contacts ORDER BY created_at DESC LIMIT $1 OFFSET $2',
+      [limit, offset]
     );
-    res.json({ contacts: result.rows });
+
+    res.json({
+      contacts: result.rows,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit)
+      }
+    });
   } catch (error: any) {
     logger.error('Get contacts error', { error: error.message });
     res.status(500).json({ error: 'Failed to fetch contacts' });

@@ -1,7 +1,7 @@
 import { db } from '../../db/client.js';
 import { logger } from '../../utils/logger.js';
-import { env } from '../../config/env.js';
 import { Bot } from 'grammy';
+import { decryptApiKey } from '../../utils/encryption.js';
 
 /**
  * Returns true if the name looks like a real person's name
@@ -35,13 +35,14 @@ export async function processCollectedContact(
 
         // 2. Fetch notification configuration
         const configResult = await db.query(
-            'SELECT contact_notification_transport, contact_notification_destination FROM bot_config WHERE id = 1'
+            'SELECT contact_notification_transport, contact_notification_destination, bot_token_encrypted, bot_token_iv FROM bot_config WHERE id = 1'
         );
 
         if (configResult.rows.length === 0) return;
 
-        const transport = configResult.rows[0].contact_notification_transport;
-        const dest = configResult.rows[0].contact_notification_destination;
+        const config = configResult.rows[0];
+        const transport = config.contact_notification_transport;
+        const dest = config.contact_notification_destination;
 
         if (!transport || transport === 'none' || !dest) {
             return; // Notifications disabled or not configured
@@ -77,7 +78,12 @@ export async function processCollectedContact(
                 if (botContext && botContext.api) {
                     await botContext.api.sendMessage(dest, formattedMessage);
                 } else {
-                    const tempBot = new Bot(env.BOT_TOKEN);
+                    if (!config.bot_token_encrypted || !config.bot_token_iv) {
+                        logger.error('Cannot send telegram notification: No bot token found in config');
+                        return;
+                    }
+                    const token = decryptApiKey(config.bot_token_encrypted, config.bot_token_iv);
+                    const tempBot = new Bot(token);
                     await tempBot.api.sendMessage(dest, formattedMessage);
                 }
                 logger.info(`Contact notification sent via ${transport}`, { dest });
